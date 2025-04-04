@@ -1,0 +1,808 @@
+import React, { useState, useRef, useEffect } from 'react';
+
+const TurkeyMap = () => {
+  // İl bazında Rus kurumları (gerçek coğrafi koordinatlarla)
+  const sehirRusya = {
+    "TR06": [
+      { name: 'Rus Evi Ankara Русский дом в Анкаре', geoCoords: { lat: 39.8677048, lng: 32.8155985 }, description: 'Rossotrudniçestvo Türkiye Temsilciliği', type: 'Büyükelçilik', address: 'Rabindranath Tagore Cd. No:68, 06550 Çankaya/Ankara', website: 'turkiye.rs.gov.ru' },
+      { name: 'Rus Eğitim Enstitüsü', geoCoords: { lat: 39.9179, lng: 32.8610 }, description: 'Rusça dil eğitimi ve kültürel etkinlikler düzenleyen eğitim kurumu.', type: 'Kültür', address: 'Ankara Merkez', website: 'rusedu.com.tr' },
+      { name: 'Rus Bilim Akademisi', geoCoords: { lat: 39.9420, lng: 32.8543 }, description: 'Ortak bilimsel projeler yürüten Rus araştırma kurumu şubesi.', type: 'Kültür', address: 'Ankara Üniversitesi Kampüsü', website: 'rusbilim.org.tr' }
+    ],
+    "TR01": [
+      { name: 'Adana Rus Kültür Merkezi', geoCoords: { lat: 36.9914, lng: 35.3308 }, description: 'Adana ilinde faaliyet gösteren Rus kültür merkezi.', type: 'Kültür', address: 'Adana Merkez', website: 'adanaruskultur.com' }
+    ],
+    "TR34": [
+      { name: 'Rusya Başkonsolosluğu İstanbul', geoCoords: { lat: 41.0362, lng: 28.9787 }, description: 'İstanbul\'daki Rusya Federasyonu Başkonsolosluğu', type: 'Konsolosluk', address: 'İstiklal Caddesi No: 443, Beyoğlu, İstanbul', website: 'https://istanbul.mid.ru/tr/' },
+      { name: 'Rus Ticaret Temsilciliği', geoCoords: { lat: 41.0565, lng: 28.9886 }, description: 'İstanbul\'daki Rusya Federasyonu Ticaret Temsilciliği', type: 'Ticaret', address: 'Halaskargazi Cad. No: 349-1, Şişli, İstanbul', website: 'https://rustrade.org.tr/' }
+    ],
+    "TR35": [
+      { name: 'İzmir Rus Derneği', geoCoords: { lat: 38.4192, lng: 27.1287 }, description: 'İzmir\'de yaşayan Ruslar için kültürel ve sosyal etkinlikler düzenleyen merkez.', type: 'Kültür', address: 'İzmir Merkez', website: 'izmirrusdernek.org' }
+    ],
+    "TR07": [
+      { name: 'Rusya Başkonsolosluğu Antalya', geoCoords: { lat: 36.8969, lng: 30.7133 }, description: 'Antalya\'daki Rusya Federasyonu Başkonsolosluğu', type: 'Konsolosluk', address: 'Park Sok. No:30, Yeşilbahçe Mah., Antalya', website: 'https://antalya.mid.ru/tr/' },
+      { name: 'Rus Dostluk Derneği', geoCoords: { lat: 36.8872, lng: 30.7029 }, description: 'Antalya\'da Rus-Türk dostluk ilişkilerini geliştiren sivil toplum kuruluşu.', type: 'Kültür', address: 'Antalya Merkez', website: 'rusdostluk.org' }
+    ]
+  };
+
+  // Kurumları koordinatlarla ilgili illere eşleme
+  const [locationMappings, setLocationMappings] = useState({});
+  const [russianCenters, setRussianCenters] = useState([]);
+
+  // İllerdeki Rus kurumu sayıları
+  const rusKurumSayilari = {};
+  Object.keys(sehirRusya).forEach(sehirKodu => {
+    rusKurumSayilari[sehirKodu] = sehirRusya[sehirKodu].length;
+  });
+
+  const [hoverCity, setHoverCity] = useState(null);
+  const [selectedCity, setSelectedCity] = useState(null);
+  const [zoomedCity, setZoomedCity] = useState(null);
+  const [selectedInstitution, setSelectedInstitution] = useState(null);
+  const [mapViewBox, setMapViewBox] = useState("0 0 800 350");
+  const mapRef = useRef(null);
+  const svgRef = useRef(null);
+
+  // Kurum türüne göre renk belirleme
+  const getMarkerColor = (type) => {
+    switch(type) {
+      case 'Büyükelçilik': return '#ff6f61';
+      case 'Konsolosluk': return '#ff9e80';
+      case 'Ticaret': return '#ffcc29';
+      case 'Enerji': return '#6b5b95';
+      case 'Kültür': return '#88d8b0';
+      default: return '#525252';
+    }
+  };
+
+  const pathStyles = (cityID) => ({
+    cursor: "pointer",
+    transition: "all 0.3s ease-in-out",
+    transform: hoverCity === cityID ? 'scale(1.008)' : 'scale(1)', 
+    fill: selectedCity === cityID ? '#4ecdc4' 
+           : hoverCity === cityID ? '#ff6b6b' 
+           : '#6c757d',
+    opacity: zoomedCity && zoomedCity !== cityID ? 0.3 : 1,
+  });
+  
+  // Coğrafi koordinatları SVG koordinatlarına dönüştürme
+  const calculateSVGCoordinates = () => {
+    if (!svgRef.current) return;
+    
+    const newMappings = {};
+    const newCenters = [];
+    
+    // Her il için
+    Object.keys(sehirRusya).forEach(sehirKodu => {
+      const cityPath = document.getElementById(sehirKodu);
+      if (!cityPath) return;
+      
+      try {
+        const bbox = cityPath.getBBox();
+        const cityCenter = {
+          x: bbox.x + bbox.width / 2,
+          y: bbox.y + bbox.height / 2
+        };
+        
+        // Her kurumu il sınırları içinde uygun bir pozisyona yerleştirme
+        const institutions = sehirRusya[sehirKodu];
+        institutions.forEach((institution, index) => {
+          // Kurum için benzersiz bir ID oluştur
+          const institutionId = `${sehirKodu}-${index}`;
+          
+          // Kurumun konumunu belirle (merkeze yakın farklı noktalarda)
+          const angle = (2 * Math.PI * index) / institutions.length;
+          const radius = bbox.width > bbox.height ? bbox.height / 3 : bbox.width / 3;
+          
+          const position = {
+            x: cityCenter.x + radius * Math.cos(angle),
+            y: cityCenter.y + radius * Math.sin(angle)
+          };
+          
+          // Konum eşlemesini kaydet
+          newMappings[institutionId] = position;
+          
+          // Kurum verilerini kopyala ve konumu ekle
+          newCenters.push({
+            ...institution,
+            id: institutionId,
+            cityCode: sehirKodu,
+            location: position
+          });
+        });
+      } catch (e) {
+        console.error(`Error processing city ${sehirKodu}:`, e);
+      }
+    });
+    
+    setLocationMappings(newMappings);
+    setRussianCenters(newCenters);
+  };
+
+  // Şehre tıklandığında yakınlaştırma işlemi
+  const handleCityClick = (cityID) => {
+    if (zoomedCity === cityID) {
+      // Eğer zaten yakınlaştırılmış şehre tıklanmışsa, uzaklaştır
+      setZoomedCity(null);
+      setMapViewBox("0 0 800 350");
+      setSelectedInstitution(null);
+    } else {
+      setSelectedCity(cityID);
+      setZoomedCity(cityID);
+      
+      // Şehrin SVG path elementini bul
+      const cityPath = document.getElementById(cityID);
+      if (cityPath) {
+        const bbox = cityPath.getBBox();
+        
+        // Şehrin etrafına biraz boşluk bırakarak yakınlaştır
+        const padding = 50;
+        const viewBox = `${bbox.x - padding} ${bbox.y - padding} ${bbox.width + padding*2} ${bbox.height + padding*2}`;
+        setMapViewBox(viewBox);
+      }
+    }
+  };
+
+  // Rus kurumuna tıklama işlemi
+  const handleInstitutionClick = (e, institution) => {
+    e.stopPropagation(); // Tıklamanın il tıklamasını tetiklememesi için
+    
+    // Zaten seçiliyse kapat, değilse aç
+    if (selectedInstitution && selectedInstitution.id === institution.id) {
+      setSelectedInstitution(null);
+    } else {
+      setSelectedInstitution(institution);
+    }
+  };
+
+  // Haritadan başka bir yere tıklandığında pop-up'ı kapat
+  const handleMapClick = (e) => {
+    // Eğer doğrudan haritaya tıklanmışsa pop-up'ı kapat
+    setSelectedInstitution(null);
+  };
+
+  // Pop-up'ı kapatma butonu işlevi
+  const handleClosePopup = (e) => {
+    e.stopPropagation();
+    setSelectedInstitution(null);
+  };
+
+  // Ana haritaya geri dönme
+  const resetMap = () => {
+    setZoomedCity(null);
+    setMapViewBox("0 0 800 350");
+    setSelectedInstitution(null);
+  };
+  
+  // Pop-up pozisyon düzeltme: Gelişmiş dinamik boyut hesaplaması ve optimum konumlandırma
+  // İçeriğe göre popup boyutlarını akıllı şekilde ayarlar
+  const adjustPopupPosition = (institution) => {
+    if (!svgRef.current || !institution) return { x: 0, y: 0, width: 140, height: 85 };
+    
+    // Mevcut görünüm alanını al
+    const viewBox = mapViewBox.split(' ').map(Number);
+    const [viewX, viewY, viewWidth, viewHeight] = viewBox;
+    
+    // İçeriğe göre popup boyutunu dinamik hesapla
+    // Temel boyutlar (minimum)
+    let popupWidth = 160;
+    let popupHeight = 85;
+    
+    // İsim uzunluğuna göre genişliği ayarla, özellikle uzun Rusça isimler için
+    const nameLength = institution.name.length;
+    if (nameLength > 20) {
+      // Uzun isimler için daha agresif genişleme, maksimum limit ile
+      popupWidth = Math.min(220, 160 + (nameLength - 20) * 3);
+    }
+    
+    // Adres uzunluğuna göre genişliği ayarla
+    const addressLength = institution.address ? institution.address.length : 0;
+    if (addressLength > 25) {
+      // Adres genişliği için daha fazla alan ayır
+      const addressWidth = Math.min(220, 160 + (addressLength - 25) * 2.5);
+      popupWidth = Math.max(popupWidth, addressWidth);
+    }
+    
+    // Web sitesi uzunluğuna göre genişliği ayarla
+    const websiteLength = institution.website ? institution.website.length : 0;
+    if (websiteLength > 15) {
+      const websiteWidth = Math.min(220, 160 + (websiteLength - 15) * 2);
+      popupWidth = Math.max(popupWidth, websiteWidth);
+    }
+    
+    // Şehir adı uzunluğuna göre genişliği ayarla
+    const cityName = document.getElementById(zoomedCity)?.getAttribute('title') || '';
+    if (cityName.length > 10) {
+      const cityWidth = 160 + (cityName.length - 10) * 4;
+      popupWidth = Math.max(popupWidth, cityWidth);
+    }
+    
+    // Adres satırlarını hesapla - bu fonksiyon yüksekliği doğru ayarlamak için kullanılacak
+    const calculateAddressLines = (address, maxCharsPerLine = 35) => {
+      if (!address) return [];
+      
+      const words = address.split(' ');
+      let lines = [];
+      let currentLine = '';
+      
+      words.forEach(word => {
+        if ((currentLine + ' ' + word).length <= maxCharsPerLine) {
+          currentLine = currentLine ? currentLine + ' ' + word : word;
+        } else {
+          lines.push(currentLine);
+          currentLine = word;
+        }
+      });
+      
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+      
+      return lines;
+    };
+    
+    // Adres satırlarını al ve yüksekliği buna göre ayarla
+    const addressLines = calculateAddressLines(institution.address);
+    // Her satır 8px ekstra yükseklik gerektirir
+    if (addressLines.length > 1) {
+      popupHeight += (addressLines.length - 1) * 8;
+    }
+    
+    // Web sitesi çok uzun mu kontrol et
+    if (institution.website && institution.website.length > 25) {
+      popupHeight += 6; // Uzun web siteleri için ekstra alan
+    }
+    
+    // Dört farklı pozisyon stratejisi hesapla - iyileştirilmiş offset değerleriyle
+    const positions = {
+      top: { 
+        x: institution.location.x - popupWidth / 2,
+        y: institution.location.y - popupHeight - 15, // Daha geniş aralık
+        priority: 1, // En tercih edilen pozisyon
+        width: popupWidth,
+        height: popupHeight
+      },
+      bottom: { 
+        x: institution.location.x - popupWidth / 2,
+        y: institution.location.y + 15,
+        priority: 2,
+        width: popupWidth,
+        height: popupHeight
+      },
+      left: { 
+        x: institution.location.x - popupWidth - 15,
+        y: institution.location.y - popupHeight / 2,
+        priority: 3,
+        width: popupWidth,
+        height: popupHeight
+      },
+      right: { 
+        x: institution.location.x + 15,
+        y: institution.location.y - popupHeight / 2,
+        priority: 4,
+        width: popupWidth,
+        height: popupHeight
+      }
+    };
+    
+    // Her pozisyon için kenarlara taşma kontrolü
+    const validPositions = Object.keys(positions).filter(pos => {
+      const p = positions[pos];
+      return (
+        p.x >= viewX + 15 && 
+        p.x + p.width <= viewX + viewWidth - 15 &&
+        p.y >= viewY + 15 &&
+        p.y + p.height <= viewY + viewHeight - 15
+      );
+    });
+    
+    // Geçerli pozisyonlar varsa, önceliğe göre sırala ve ilkini kullan
+    if (validPositions.length > 0) {
+      validPositions.sort((a, b) => positions[a].priority - positions[b].priority);
+      return positions[validPositions[0]];
+    }
+    
+    // Hiçbir ideal pozisyon yoksa, zorlayarak ekranın içinde tut
+    let x = institution.location.x - popupWidth / 2;
+    let y = institution.location.y - popupHeight - 15;
+    
+    // Sağ kenara göre düzeltme
+    if (x + popupWidth > viewX + viewWidth - 15) {
+      x = viewX + viewWidth - popupWidth - 15;
+    }
+    
+    // Sol kenara göre düzeltme
+    if (x < viewX + 15) {
+      x = viewX + 15;
+    }
+    
+    // Üst kenara göre düzeltme
+    if (y < viewY + 15) {
+      y = viewY + 15;
+    }
+    
+    // Alt kenara göre düzeltme
+    if (y + popupHeight > viewY + viewHeight - 15) {
+      y = viewY + viewHeight - popupHeight - 15;
+    }
+    
+    return { x, y, width: popupWidth, height: popupHeight };
+  };
+  
+  // Kurum pozisyonlarını hesapla
+  useEffect(() => {
+    // Şehir elementleri hazır olduğunda konum hesaplaması yap
+    const timer = setTimeout(() => {
+      calculateSVGCoordinates();
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    // Başka bir şehre tıklandığında pop-up'ı kapat
+    setSelectedInstitution(null);
+  }, [zoomedCity]);
+
+  return (
+    <div className='container mt-5'>
+      <h2 className="text-center mb-4">Türkiye'deki Rus Kurumları Haritası</h2>
+      
+      {zoomedCity && (
+        <button 
+          className="btn btn-sm btn-outline-secondary mb-3"
+          onClick={resetMap}
+        >
+          Türkiye Haritasına Dön
+        </button>
+      )}
+      
+      <div className='position-relative' onClick={handleMapClick}>
+        <div className='map-container'>
+          <svg 
+            ref={svgRef}
+            id="svg-turkey-map" 
+            xmlns="http://www.w3.org/2000/svg" 
+            version="1.1" 
+            viewBox={mapViewBox}
+            width="100%" 
+            height="600px"
+          >
+            <g>
+              {/* Türkiye il haritaları burada */}
+              <path 
+              data-city-name="adana" 
+              title="Adana" 
+              className="city" 
+              d="M445.07,206.98l-1,1.29l-1.19,5.33l-0.91,2.23l-0.88,1.49l-1.5,1.21l-0.55,0.81l0.2,0.53l2.09,0.32l0.95,0.81l-0.24,1l-1.76,1.56l-0.8,1.41l0.26,1.03l1.8,2.29l0.43,2.09l-0.18,1.5l-0.98,2.1l-2.89,2.9l0,0l-1.31,0.3l-4.18,2.51l-2.15,3.22l-1.29,4.13l-0.47,4.38l0.44,3.09l1.52,4.45l0.38,3.03l-1.24,9.1l0,0l-1.39,1.2l-0.84,1.44l-0.18,1.19l0.43,1.39l0,0l-2.15,2.17l-1.38,0.85l-1.01,1.84l-1.87,1.45l-0.3,0.75l-2.27,1.53l-1.47,-0.19l-1.72,0.58l-0.59,-0.45l-1.21,0.01l-1.64,1.05l-0.84,1.74l0.91,-0.42l-0.22,0.47l0.23,0.71l0.52,-1.15l0,-0.31l-0.48,-0.03l0.23,-0.38l0.78,-0.18l0.03,0.51l0.25,0.14l-0.16,0.87l1.81,-0.22l0.2,-0.21l-0.42,-0.16v-0.37l1.08,0.75l-3.2,2.23l-0.46,0.78l-0.31,2.37l-0.69,0.64l-1.37,0.56l-0.48,0.77l-0.42,0.14l-0.5,-0.44l-1.84,-0.49l-2.79,-0.34l-1.03,0.32v0.63l-2.8,1.72l-0.22,-0.62l-1.08,-0.7l-12.54,-7.43l-1.87,-0.65l-2.25,0.03l0,0l1,-0.91l0,0l-0.02,-0.25l0.27,0.21l0,0l0.41,-0.32l0.13,0.32l0.35,-0.1l0.16,-0.96l0.2,0.42l0.81,-0.44l0.49,0.03l0.53,0.47l-0.28,-0.69l0.19,-0.13l0.8,0.57l0.02,-1.1l0.31,0.02l0.38,0.66l1.29,-1.71l0.82,0.75l1.27,-0.45l0.29,0.06l0.17,0.51l0.29,-0.13l-0.21,-0.27l0.79,-0.46l0.23,-0.82l-0.67,-3.38l-0.01,-3.39l-0.88,-3.1l0.1,-2.1l-0.57,-0.79l-0.6,-0.57l-2.41,-1.2l-1.69,-0.01l-0.29,-1.3l-0.63,-1.02l-0.99,-0.63l-0.86,-0.14l-0.34,-0.5l0.02,-1.54l0.53,-0.84l1.49,-1.05l-0.08,-1.23l-1.15,-1.89l-1.6,-1.36l0.2,-0.51l-1.31,-0.29l-2.23,-3.07l0.14,-2.21l-0.84,-1.45l0,0l0.05,-0.49l2.58,-1.6l-0.76,-1.45l1,-1.36l0.77,-3.56l0.04,-2.24l0.75,-1.26l1.5,-0.35l2.29,1.04l1.27,-0.08l0.83,-0.71l2.45,-4.29l1.31,-1.13l3.23,-1.58l0,0l4.93,1.27l0.51,0.63l1.32,-0.34l0.48,0.27l0.43,1.17l0.36,0.24l1.1,-0.25l4.33,0.72l1.71,-0.04l1.23,-2.07l-0.22,-1.66l0.67,-2.1l0.84,-5.59l0.67,-0.42l1.5,-0.26l1.1,-0.74l0.89,-0.85l1.19,-1.89l1.13,-0.44l1.15,-1.51l5.24,-1.63l1.34,-0.85l1.37,-2.25l1.15,-4.28l2,-1.95l1.65,-3.03l3.83,-1.42l1.29,-0.08l2.7,2.06l1.68,2.64L445.07,206.98z"
+              id="TR01"
+              style={pathStyles('TR01')}
+              onMouseEnter={() => setHoverCity('TR01')}
+              onMouseLeave={() => setHoverCity(null)}
+              onClick={() => handleCityClick('TR01')}
+            />
+
+            <path 
+              data-city-name="adiyaman" 
+              title="Adıyaman" 
+              className="city" 
+              d="M557.34,211.25L558.12,211.39L559.49,210.17L560.65,210.16L561.08,210.93L562.03,211.67L562.28,213.06L562.11,213.75L561.21,214.69L560.51,217.44L559.72,217.75L559.49,218.42L558.17,219.93L558.17,219.93L557.54,220.17L556.48,219.99L555.13,220.54L554.89,221.03L553.85,221.67L553.58,223.26L552.53,225.31L551.43,225.49L550.31,226.26L551.07,226.96L550.92,227.76L550.33,228.34L550.5,230.03L548.37,230L547.44,230.61L547.13,231.21L547.28,231.63L548.95,231.03L549.63,231.16L549.68,233.75L547.98,234.29L547.7,234.7L547.76,235.72L546.51,236.56L545.12,237.06L544.23,236.76L543.84,237.09L544,238.23L544.82,238.43L545.38,238.88L545.26,239.12L541.28,240.32L536.98,240.81L533.57,243.51L530.27,246.67L528.2,247.75L523.38,247.96L522.71,248.47L521.34,248.27L520.25,249.99L518.98,249.5L518.28,249.65L517.9,250.44L517.94,251.32L517.42,251.74L517.13,251.72L517.04,251.17L515.94,251.22L513.61,249.68L513.61,249.68L511.88,248.58L507.98,247.29L504.17,246.94L501.32,247.31L500.39,247.03L498.7,245.18L496.71,245.45L494.37,246.53L493.67,246.44L492.58,245.69L492.58,245.69L491.49,243.73L491.16,242.02L489.67,242.06L488.33,241.56L487.24,241.6L487.12,240.53L486.56,239.64L487.35,238.92L487.32,238.36L487.9,237.67L487.73,236.19L488.17,234.54L489.03,233.33L490.73,231.87L490.98,228.52L490.58,227.29L491.65,226.46L493.19,225.99L493.86,225.42L495.32,222.79L495.32,222.79L496.01,223.22L496.18,223.72L495.74,225.54L498.9,224.82L499.27,225.19L499.51,226.82L499.94,227.31L500.59,227.36L501.44,226.33L501.98,226.18L504.02,226.81L506.37,227.12L508.78,226.43L511.05,226.22L512.5,224.19L514.49,223.73L515.06,222.49L514.3,220.37L514.35,219.18L513,217.35L513.39,216.26L515.7,215L520.59,213.52L521.5,212.6L522.23,211.24L523.65,210.7L527.74,210.43L528.89,211.26L531.06,212.12L532.28,213.08L533.63,213.31L534.34,214.44L536.39,214.83L537.9,216.54L539.47,216.83L541.69,219.08L543.31,219.58L547.87,217.81L549.17,216.92L551.77,216.19L552.22,214.81L554.89,213.46z"
+              id="TR02"
+              style={pathStyles('TR02')}
+              onMouseEnter={() => setHoverCity('TR02')}
+              onMouseLeave={() => setHoverCity(null)}
+              onClick={() => handleCityClick('TR02')}
+            />
+
+<path 
+              data-city-name="afyonkarahisar" 
+              title="Afyonkarahisar" 
+              className="city" 
+              d = "M197.93,155.58L199.44,155.37L201.16,156.17L202.76,159.15L203.21,161.1L206.07,162.46L207.48,163.73L208.76,165.53L209.29,165.73L209.89,165.34L210.12,162.41L211.01,161.7L215.39,162.05L218.17,162.74L219.13,162.58L219.95,161.48L220.1,160.57L217.09,158.56L216.68,157.99L216.86,157.4L217.61,157.11L219.32,157.21L222.53,158.57L223.09,156.97L223.53,156.7L225.05,156.63L225.28,155.21L226.24,153.52L227.08,152.68L227.64,152.6L231.5,155.27L233.14,155.17L234.49,154.27L235.07,154.26L236.63,156.31L239.56,158.44L239.85,158.89L240.17,161.3L241.11,161.77L242.68,161.77L243.67,162.28L244.78,164.61L245.44,164.99L245.44,164.99L246.6,167.25L251.9,168.16L252.35,168.52L252.46,169.08L252.07,169.67L249.95,169.61L249.02,170.12L247.37,169.98L246.51,170.29L247.3,171.78L246.62,173.28L246.97,176.2L246.8,177.3L245.53,180.76L245.19,181.39L243.92,182.27L243.41,183.6L243.85,185.37L245.64,186.33L246.08,187.39L245.31,188.02L243.74,188.42L233.78,195.4L233.36,196.51L233.25,198.13L232.57,199.15L232.57,199.15L231.28,199.36L229.41,196.4L227.67,194.79L226.87,194.4L225.18,194.32L221.3,195.28L218.19,198.31L215.86,199.01L214.49,199.98L212.31,204.29L211.4,205.32L208.23,206.74L205.47,209.07L204.44,209.06L203.15,209.8L201.3,209.73L200.02,210.43L197.23,212.86L196.35,214.7L194.99,215.8L193.19,217.98L192.32,218.56L190.63,218.91L189.17,219.83L188.1,221.03L187.43,222.36L186.04,223.81L186.24,227.34L184.29,230.41L184.09,231.67L184.09,231.67L184.09,231.67L184.09,231.67L179.26,231.21L176.29,231.34L176.29,231.34L174.76,230.5L173.71,230.42L172.13,229.28L169.77,228.14L168.61,226.97L167.88,225.93L167.25,223.92L167.58,221.08L170.67,217.93L172.81,216.2L174.84,212.93L175.53,212.55L179.23,212.71L181.13,209.61L181.98,208.88L183.69,208.17L183.89,207.36L182.61,203.08L181.44,200.62L178.8,199.52L177.66,197.74L175.9,197.54L174.53,195.98L172.89,195.96L170.82,194.56L170.82,194.56L173.21,192.28L175.51,188.43L177.06,187.54L177.11,186.42L176.01,185.24L176.06,183.52L176.48,182.83L177.49,182.31L178.28,181.06L179.99,180.14L180.61,178.72L180.59,177.56L180.59,177.56L181.56,177.53L182.67,176.97L183.73,175.91L185.3,173.47L188.15,172.29L189,170.28L190.61,168.38L190.03,165.56L190.32,164.35L189.92,162.46L190.13,161.23L191.57,159.96L193.48,159.04L195.49,159.14L196.21,158.92L197.37,157.35z"
+              id="TR03"
+              style={pathStyles('TR03')}
+              onMouseEnter={() => setHoverCity('TR03')}
+              onMouseLeave={() => setHoverCity(null)}
+              onClick={() => handleCityClick('TR03')}
+            />
+
+            <path 
+              data-city-name="ankara" 
+              title="Ankara" 
+              className="city" 
+              d="M284.94,76.9L287.51,76.52L288.86,76.63L296.2,80.95L297.99,81.6L301.08,82.14L301.74,83.7L300.79,87.28L304.55,87.31L307.22,88.67L309.93,89.46L311.78,93.46L313.71,96.48L314.51,97.01L315.49,95.96L316.84,95.86L317.61,93.83L318.42,93.37L321.02,93.86L322.2,95.35L325.63,94.94L329.36,95.86L332.2,96.08L332.9,96.44L333,97.12L333,97.12L332.54,97.41L332.06,97.05L331.86,97.36L331.45,97.13L331.01,97.61L330.53,97.61L330.6,99.05L330.1,99.14L329.71,99.94L329.3,99.63L329,100.86L328.52,101.1L329.07,101.76L328.34,102.49L327.93,104.09L328.62,105.38L328.44,107.45L327.77,109.79L328.87,111.44L326.48,113.73L323.82,114.48L322.75,115.29L319.79,116.09L317.33,122.83L316.27,122.82L316.03,123.23L316.52,125.79L316.45,126.79L313.27,132.11L313.78,132.78L317.65,135.39L318.91,136.95L319.37,138.73L319.54,141.56L319.34,141.96L319.59,142.56L319.38,143.19L319.65,143.87L319.32,145.09L319.68,145.74L319.15,146.34L320.05,147.27L320.71,147.08L320.71,147.08L320.72,147.83L321.24,148.88L321.64,149.38L322.21,149.3L322.33,150L322.79,150.29L322.45,150.97L321.82,150.86L321.69,151.39L322.25,151.77L322.38,152.29L324.27,152.98L325.32,155.12L325.98,155.52L327.07,157.98L330.04,159.16L331.26,160.96L332.53,161.31L332.92,162.22L333.98,162.52L334.42,162.97L334.65,164.32L338.72,164.58L339.42,165.56L339.42,165.56L338.68,166.76L338.23,168.38L338.38,170.09L338.05,171.82L336.35,174.43L336.3,175.3L337.63,178.64L334.99,184.3L328.23,186.97L324.27,187.06L324.27,187.06L321.65,183.4L319.79,180.15L318.89,176.13L318.51,172.87L318.44,171.72L319.15,168.9L318.83,166.91L318.44,166.21L317.74,165.76L314.63,164.42L313,163.26L310.73,160.42L310.1,158.02L309.9,155.46L310.69,154.46L312.04,154.38L312.84,153.86L312.91,152.8L312.16,152.34L310.86,152.38L309.03,153.36L307.46,154.9L306.65,156.21L305.45,156.69L304.69,156.5L304.25,155.84L304.11,154.48L304.6,151.93L303.91,151.25L302.97,151.24L301.47,152.27L297.7,152.99L297.06,153.58L296.49,154.83L295.72,159.26L295.03,159.9L293.45,160.26L292.97,160.63L293.22,163.21L292.61,164.61L291.15,165.18L290.41,166.34L289.22,166.69L287.93,166.38L286.55,164.96L285.18,164.8L284.06,165.79L282.86,168.21L281.57,168.72L278.99,168.41L275.49,165.78L274.67,165.66L273.63,166.83L272.98,166.9L272.56,166.66L272.23,165.72L271.92,165.66L271.17,166.18L269.69,169.19L268.77,170.03L267.01,170.34L264.67,169.61L262.77,167.73L259.23,160.73L258.16,160.27L258.16,160.27L258.5,157.76L259.94,156.62L262.47,152.97L264.14,152.12L264.7,150.97L264.57,149.89L261.8,148.74L261.9,147.42L262.56,147.24L262.44,146.65L261.51,145.73L261.51,145.07L261.8,144.91L261.61,144.61L261.93,144.42L261.48,142.69L262.18,141.66L261.84,141.33L261.05,141.52L260.5,141.06L260.88,139.67L259.99,139.41L259,137.72L257.61,132.14L254.96,128.44L254.97,127.62L256.6,123.84L257.83,122.76L257.11,122.87L257.03,122.58L256.59,122.72L256.64,123.04L256.42,122.82L255.82,123.08L255.57,122.69L256.69,121.89L256.2,121.68L256.13,121.29L253.91,121.63L252.5,120.41L252.31,119.67L251.2,118.54L251.08,116.61L250.51,116.83L249.81,116.56L249.35,115.82L250.01,113.93L249.53,113.85L248.5,114.59L247.99,114.38L248.38,112.11L246.42,113.7L242.93,112.93L241.52,113.89L239.79,112.62L239.4,113.44L238.63,113.86L237.74,113.73L237.25,114.07L236.68,113.04L237.45,112.74L237.75,112.89L238.32,112.51L236.83,111.58L234.7,112.47L233.6,111.83L231.72,111.58L229.58,111.88L228.67,112.45L227.33,112.23L226.75,111.46L225.77,111.47L225.38,111.11L224.67,112.16L224.32,111.87L223.65,112.33L222.71,112.13L221.66,112.54L221.27,112.91L221.25,113.53L218.67,113.18L218.08,113.43L216.93,112.96L216.35,112.19L215.92,112.44L214.64,111.62L214.43,110.96L214.63,110.61L214.05,110.03L214.27,108.99L213.59,106.88L213.59,106.88L215.21,105.52L217.68,104.37L219.92,101.62L221.09,101.06L222.58,99.63L222.87,98.64L224.91,95.54L226.1,94.96L230.41,95.62L236.87,94.26L237.74,94.35L238.73,95.03L239,96.97L239.38,97.53L243.27,97.77L245.66,98.3L247.64,98.1L251.93,97.02L253.63,97.05L255.35,97.62L258.04,97.25L261.01,94.86L263.86,94.36L267.26,94.85L268.34,96.42L269.07,96.73L271.99,96.38L272.87,95.57L272.88,94.49L271.1,92.53L270.48,91.01L270.75,89.32L271.7,87.19L272.49,86.38L273.76,85.72L276.25,85L278.21,84.06L281.6,83.25L281.86,82.68L281.72,81.95L280.2,80.13L280.38,78.55L280.79,77.96L281.67,77.48z"
+              id="TR06"
+              style={pathStyles('TR06')}
+              onMouseEnter={() => setHoverCity('TR06')}
+              onMouseLeave={() => setHoverCity(null)}
+              onClick={() => handleCityClick('TR06')}
+            />
+            
+            <path 
+              data-city-name="antalya" 
+              title="Antalya" 
+              className="city" 
+              d="M234.84,249.39l0.35,1.05l2.91,2.15l2.5,0.8l2.73,0.01l3.71,1.27l2.8,-0.4l3.47,-2.07l0.92,-0.19l0.8,0.29l0.53,0.87l0.53,2.05l2.15,2.11l0.07,1.69l0.63,0.81l1.6,4.39l2.35,2.72l1.91,3.23l1.09,1.01l6.38,2.43l1.44,1.74l0.14,2.63l0.7,1.77l1.04,0.91l3.48,1.84l0.43,0.57l0,0l-0.87,5.4l0.5,1.84l0.59,0.93l2.7,2.32l2.72,2.95l0,0l0.93,4.43l2.54,6.03l-0.37,1.76l-1.35,1.68l0.17,1.18l-0.33,0.29l0,0.69l-0.43,0.72l0.79,1.13l-0.03,1.14l-0.9,1.44l-0.02,0.79l-0.66,0.42L285.2,319l0,0l-1.03,0.41l-2.03,-0.86l-1.17,-1.23l-3.3,-2l-1.21,-1.83l-2.06,-1.18l-0.88,-1.56l-0.14,-1.18l-2.42,-2.48l-2.16,-4.24l-1.42,-1.35l-0.58,-1.16l-1.62,-1.9l-2.31,-1.89l-0.7,-0.1l-0.21,0.6l-0.44,0.05l-0.06,-0.58l-1.1,-0.89l-1.79,-0.29l-2.65,-1.27l-1.96,-0.38l-0.8,-0.56l-0.52,0.13l-0.01,-0.52l-1.39,-1.16l-3.13,-0.64l-1.17,-1.1l-3.51,-2.21l-3.72,-1.69l-3.11,-0.84l0.22,-0.44l-0.26,-0.47l-1,-0.85l-1.36,-0.59l-8.26,-1.27l-5.11,-1.21l-8.61,0.54l-0.35,-0.3l-1.14,0.29l-1.25,-0.53l-1.31,-1.43l-1.15,0.23l-1.6,1.19l-2.33,3.03l-0.51,3.72l0.44,1.22l-0.17,1.37l-0.64,1.39l0.06,1.38l0.46,1.02l0.4,0.31l0.47,-0.15l0.15,0.36l-1.43,2.58l-0.08,0.61l-0.6,0.38l0.1,0.59l-1.11,2.06l-0.39,0.13l0.38,0.56l-0.31,0.79l-1.21,0.36l0.33,0.39l-0.49,1.39l0.38,0.92l0.84,0.61l0.23,1.23l0.65,0.05l0.07,0.5l-2.61,1.09l0.17,0.78l0.59,-0.19l0.14,0.2l-0.02,0.98l-1.71,1.38l-0.47,0.55l0.03,0.39l-1.17,1.11l-0.23,-0.19l0.2,-1.35l-0.34,-0.32l0.46,-0.47l0.1,-0.7l-1,-0.2l-0.82,0.27l-1.72,-1.41l-1.8,-0.87l-3.88,0.03l-1.51,0.66l-0.01,1.45l-0.4,0.33l-0.11,-0.63l-1.02,1.62l-1.2,-0.16l-1.2,-1.31l-0.62,0.5l0,0.23l0.54,0.09l-0.19,0.29l-2.45,1.53l-0.21,0.38l-1.67,-0.2l-0.62,-0.68l-0.87,0.41l-0.12,0.52l-0.72,0.16l0.38,0.51l-0.53,0.36l-1.17,0.29l0.31,-0.36l-1.02,0.08l0.4,0.22l-2.07,1.41l1.25,-0.23l-2.17,1.57l-0.75,-0.38l0.92,-0.69l-0.43,-0.12l-0.67,0.32l-0.34,-0.35l-0.26,0.22l-0.58,-0.33l-1.85,1.36l-0.12,-0.79l-0.96,0.27l-0.16,-0.49L164,315.5l0.38,-0.49l0.43,0.25l-0.2,-1.11l-1.05,-0.09l-0.45,0.49l-1.04,0.07l1.12,-0.87l0.86,-0.07l-0.98,-0.15l-1.23,0.28l-0.3,-0.33l-2.96,-0.01l-1.22,-0.25l-1.36,-0.85l-0.61,-0.04l-0.41,0.37l-0.34,-1l0.53,-0.78l-0.65,0.05l-0.49,-0.33l-0.86,0.09l0.18,0.34l-0.25,1.01l-0.54,0.34l-1.61,-0.97l-2.18,-2.12l0.16,-0.19l0,0l0.65,-0.12l-0.34,-0.52l0.65,-0.08l0.18,-0.35l0.39,0.35l0.46,-0.64l-0.12,-3.42l0.88,-0.38l-0.44,-0.6l0.08,-0.68l-0.43,-0.4l0.33,-0.68l0.65,0.18l0.72,-0.98l1.74,-0.89l4.02,0.06l1.11,-0.36l2.29,-2.03l0.57,-1.44l1.59,-2.3l3.88,-2.45l1.29,-3.22l-0.36,-3.43l0.33,-2.73l2.19,-3.29l0.2,-0.9l-0.53,-2.24l-1.6,-1.35l0,0l1.03,-1.33l2.58,-1.95l-0.72,-3.76l0.98,-1.82l2.32,-1.69l2.07,-2.27l3.25,-1.15l1.55,-1.81l2.08,-1.07l2.96,-2.13l3.05,-0.66l2.68,0.28l1.41,0.85l1.67,1.65l3.99,1.8l12.51,0.42l1.1,-0.46l0.44,-0.53l1.26,-3.68l1.91,-2.82l0.05,-0.72l-1.18,-0.87l0,0l1.43,-0.2l1.22,0.25l2.03,2.33l1.54,0.66l0.73,-1.06l1.51,-0.34l0.39,-0.72l1.48,-1l6.76,-1.34L234.84,249.39z"
+              id="TR07"
+              style={pathStyles('TR07')}
+              onMouseEnter={() => setHoverCity('TR07')}
+              onMouseLeave={() => setHoverCity(null)}
+              onClick={() => handleCityClick('TR07')}
+            />
+            
+            <path 
+              data-city-name="istanbul" 
+              title="İstanbul" 
+              className="city" 
+              d="M149.16,48.24l3.2,0.92l1.84,0.01l4.59,1.51l3.54,0.77l0.97,-0.56l2.65,1.01l2.2,0.37l1.86,-0.2l2.69,1.06l1.31,-0.21l2.62,0.15l0,0l0.09,2.6l-1.14,1.43l-1.23,2.51l-1.63,0.55l-2.67,-1.1l-1.51,0.17l-0.87,0.94l-0.83,2.63l-0.65,0.25l-3.88,-1l-2.18,0.15l-0.96,0.44l-0.92,0.81l-1.05,2.5l-2.09,1.32l-0.72,1.21l-0.51,0.02l-0.92,1.93l-0.54,-0.02l-0.26,0.99l0,0l-1.03,-0.72l-0.45,0.36l-0.5,-0.2l-1.28,0.28l-0.12,0.32l-0.21,-0.15l-0.14,-0.36l1,-0.54l-0.59,-0.87l0.62,0.33l0.51,-0.51l-0.17,-0.57l-1.14,-0.04l0.15,-0.28l-0.32,-0.53l-0.69,-0.34l-0.44,0.3l-3.45,-1.69l-1.44,-2.14l-2.56,-1.59l-0.27,0.27l-0.34,-0.99L138.81,62l-0.64,-2.35l1.87,-1.48l0.13,-1.35l0.47,-0.55l0.04,-1.08l1.15,-0.78l-0.19,-0.95L140.88,53l0.26,-0.5L141,51.8l0.51,-0.31l0.06,-0.45l1.03,-0.29l0.31,-0.93l1.9,-1.28l1.29,0.2l0.82,-0.27l-0.08,-0.3l1.65,-0.19L149.16,48.24zM103.83,29.47l0.41,0.23l-0.2,0.2l0.2,0.53l1.45,1.34l-0.01,0.28l0.45,0.07l1.66,1.46l9.24,4.99l2.86,1.24l2.37,1.47l1.99,0.67l0.65,-0.22l0.08,0.33l4.11,2.1l6.84,2.59l2.99,0.6l0.46,-0.03l0.21,-0.59l0.91,0.07l0.49,0.38l0.25,-0.22l1.37,0.79l0.14,0.26l-0.37,0.77l0.21,0.44l-0.78,0.66l-0.8,1.34l-1.45,1.03l1.39,1.77l-0.81,1.51l0.1,0.79l-0.52,0.26l0.1,0.55l-0.57,0.98l-1.48,0.67l-0.35,0.51l-0.11,1.22l-2.03,0.27l-0.5,0.69l-0.52,0.02l-0.45,0.47l-2.1,0.29l-0.73,0.96l-0.96,-0.08l-1.94,-1.22l-0.9,0.48l-1.71,-0.1l-1.27,0.57l-1.96,0.13l-1.03,-0.66l0.22,-1.95l-0.54,-0.47l-0.93,-0.04l-0.78,1.01l-0.22,0.79l-3.11,-2.17l-1.98,-0.95l-3.02,-0.89l-3.58,-0.26l-1.09,-0.84h-0.51l-0.44,0.38l-1.75,-0.14l-1.52,0.37l-0.39,0.35l-1.96,0.2l-3.11,1.77l0,0l-0.9,-1.97l0.26,-0.63l-0.33,-0.4l0.14,-1.13l0.27,-0.21l-0.18,-0.5l1.74,-3.51l-0.2,-1.28l0.19,-1.16l2.39,-4.07l0.74,-3.31l0.89,-6.77l1.53,-5.57l0,0L103.83,29.47z"
+              id="TR34"
+              style={pathStyles('TR34')}
+              onMouseEnter={() => setHoverCity('TR34')}
+              onMouseLeave={() => setHoverCity(null)}
+              onClick={() => handleCityClick('TR34')}
+            />
+            
+            <path 
+              data-city-name="izmir" 
+              title="İzmir" 
+              className="city" 
+              d="M42.91,192.53l0.43,-0.04l0.71,0.74l0.01,1.61l0.73,0.88l-0.28,1.15l-0.74,-0.1l0.12,-0.64l-1.32,-0.36L42.91,192.53zM71.64,148.32l0.77,4.68l0.91,1.31l0.76,0.12l0.56,0.82l-0.6,4.13l0.71,2.81l0.99,1.26l1.3,2.84l0.03,1.2l-0.59,3.21l-0.27,0.56l-1.29,0.99l-2.7,0.67l-1.87,1.25l-2.06,-0.59l-0.74,0.92l-1.97,0.07l-2.04,1.12l-0.52,0.66l0.34,1.32l-2,2.14l-0.19,1.05l0.61,1.38l0.9,0.17l0.57,0.44l1.9,3.41l0.24,5.04l1.94,1.36l2.86,-0.59l1.55,0.25l1.85,0.98l1.11,2.37l2.9,-0.35l0.45,0.23l1.04,2.12l1.64,-0.26l1.55,1.51l1.84,-0.03l0.94,0.37l1.02,2.97l1.01,1.05l1.23,0.46l1.46,-0.38l0.8,1.34l0.67,-0.18l0.46,-1.38l-0.03,-0.98l-0.57,-1.61l0.15,-0.46l1.9,-0.41l1.43,1.19l1.78,-0.74l2.26,-0.22l1.98,1.47l2.06,0.37l1.09,1.56l1.77,0.61l1.95,0.04l1.58,0.94l1.36,1.69l1.92,0.42l3.36,1.36l0.4,0.83l-0.73,0.85l-0.09,1.99l2.47,2.96l0,0l-1.2,2.21l-0.94,-0.25l-1.55,-1.41l-0.94,-0.09l-3.05,0.98l-0.69,1.72l-1.94,1.47l-5.45,0.85l-4.73,0.09l-4.12,1.36l-2.42,0.39l-2.81,1.27l-2.45,0.6l-0.63,-0.63l-1.27,-0.27l-0.44,-0.58l-1.88,-0.11l-1.09,-1.14l-2.73,0.09l-1.77,0.74l-1.71,1.52l-0.65,1.6l-0.05,2.68l-1.71,1.85l-1.11,0.38l-0.62,-0.33l-0.17,-2.04l-1.08,-0.59l-1.57,-0.02l-0.66,-0.85l0,0l0.12,-0.43l-0.32,-0.08l-0.1,-0.4l0.64,-0.61l-0.08,-0.8l-0.78,-1.68l-0.55,-0.45l-1.24,-0.54l-1.65,0.41l-1.66,-0.29l-1.36,-1.43l-1.23,-0.2l-0.11,-0.77l-0.89,-0.85l-1.25,-0.26l-1.39,-1.08l-1.36,-0.08l-1.78,0.59l-0.96,0.71l-0.48,1.08l-0.27,-0.08l-0.85,-2.32l0.25,-1.34l-0.72,-1.17l0.14,-0.35l-0.69,-0.65l0.17,-0.7l-0.89,-0.71l-0.46,-0.05l-0.27,0.37l-0.79,-0.55l0.28,-1.13l0.43,0.1l0.26,-0.26l-1.33,-1.17l-1.27,0.66l-2.72,-0.04L40,210.47l-0.36,3.21l-0.74,-0.07l0.36,1.51l-0.41,0.41l-0.49,-0.03l-0.45,-0.34l0.09,-0.8l-0.6,-0.92l-0.29,-0.04l0.15,0.9l-0.28,0.48l-1.18,-0.62L35,212.22l0.16,-0.88l-0.76,0.24l-0.38,-0.24l0.06,-0.65l-1.29,0.19l0.17,-0.59l-0.73,-0.75l-0.93,-0.25l0.33,1.14l-1.65,-1.23l0.02,-0.7l0.49,-0.33l-0.43,-0.87l-0.5,0.13l0.26,0.61l-0.85,0.98l-1.22,0.08l-1.16,-0.75l-0.82,-1.22l-1.16,-0.3l-0.86,0.33l-0.42,-0.36l0.14,-1.26l0.44,0.01l0.3,0.47l0.89,-0.28l0.39,-0.49l-0.04,-1.18l0.92,0.15l-0.75,-1.28l-0.07,-1.28l0.74,0.62l0.91,0.15l-0.34,0.28l0.08,0.83l0.86,0.44l0.25,-0.53l0.07,0.79l1.07,0.58l0.52,-0.34l-0.01,-1.98l0.75,1.04l-0.25,0.5l0.24,-0.04l1.29,-1.19l0.72,-0.11l0.86,-1.28l0.47,-0.22l-0.39,-0.52l-0.08,-1.12l-0.52,-0.11l0.13,-0.42l-0.41,-0.16l-0.04,-0.38l0.75,0.07l0.88,1.37l0.54,-0.25l0.55,-1.2l-0.88,-1.01l-2.49,-1.58l-0.65,0.09l-0.29,0.94l-0.55,0.61l-0.29,-0.07l-0.08,-0.82l0.89,-1.58l-1.25,-1.4l0.01,-0.64l-0.87,-2.01l-0.29,-3.67l0.31,-0.98l1.56,-0.45l0.77,-0.63l1.05,0.35l1.22,-0.07l1.75,1.42l0.34,-0.15l0.26,0.34l-0.27,0.27l1.32,1.99l0.36,-0.03l0.33,2.19l1.84,1.58l0.45,-0.1l0.62,3.34l-0.4,0.25l-0.5,-0.51l-1.31,0.16l0.12,0.52l0.51,0.06l0.09,0.39l-0.21,0.94l-0.65,0.43l0.67,0.48l0.45,-0.29l0.25,0.27l0.57,1.85l0.58,0.49l0.02,1.7l1.24,1.55l0.74,-0.05l0.45,-0.38l-0.9,-2.32l-0.26,-1.6l0.37,-0.39l0.02,-0.75l0.8,-0.8h1.26l0.18,0.42l-0.22,0.38l1.27,2.48l1.49,0.61l1.4,-0.8l4.2,-0.69l3.59,-1.56l1.47,-0.02l0.63,0.76l0.53,0.13l1.36,-0.64l0.96,-1.68l1.12,0.02l-0.46,-1.34l-1.05,0.12l-0.88,0.83l-1.39,-0.95l-0.75,0.29l-0.62,-0.2l-1.35,0.17l-1.8,0.71l-0.67,0.59l-1.23,-1.42l-0.57,-1.16l-1,-0.94l-0.26,-0.71l0.23,-0.91l-1.44,-0.44l-0.77,-0.73l0.68,-0.52l0.02,-0.45l-0.34,-0.29l-0.38,0.15l-1.78,-1.9l-1.24,-0.06L45.05,188l0.63,-0.36l-0.14,-0.27l-0.65,0.3l-0.67,-0.64l0.08,-1.03l0.75,-0.22l-0.85,-0.84l-0.16,-0.69l-0.11,-1.44l0.5,-0.81l0.81,0.12l2.2,-0.67l0.68,-0.51l0.31,1.01l0.82,-0.55l0.89,0.97l0.69,0.02l0.5,-1.7l0.93,0.54l0.4,-0.47l-1.72,-2.41l-0.18,-0.74l0.86,0.39l1.23,-0.98l-0.07,1.16l0.31,0.5l1.03,-0.12l0.38,-0.91l-0.91,-0.47l0.36,-0.75l2.35,-1.25l-0.15,0.84l0.51,0.08l0.41,-0.72l0.53,0.14l0.2,-0.26l-0.19,-1.01l-0.87,-0.33l0.84,-0.98l-0.18,-0.93l-0.38,-0.43l-0.71,0.15l0,0.42l-0.63,0.31l0.29,0.57l-0.3,0.06l-1.05,-0.35l-1.33,-1.12l-1.37,-0.06l-2.22,1.16l-0.46,-0.21l-0.27,-0.67l-1.17,-0.14l-0.3,-0.68l-0.55,-0.11l-0.17,-1.77l0.46,-1.57l-0.37,-0.04l0.02,-0.87l3.43,-1.75l0.21,-0.56l-0.47,-1.23l-1.59,-2.19l-1.17,-0.95l-1.75,-0.36l0,0l2.64,-3.66l1.96,-0.11l1.77,-1.6l3.21,-0.53l3.16,-3.6l1.5,-0.26l2.1,-0.84l3.18,0.94l2.96,-1.03L71.64,148.32z"
+              id="TR35"
+              style={pathStyles('TR35')}
+              onMouseEnter={() => setHoverCity('TR35')}
+              onMouseLeave={() => setHoverCity(null)}
+              onClick={() => handleCityClick('TR35')}
+            />
+
+              {/* Genel harita görünümünde il noktaları */}
+              {!zoomedCity && Object.keys(rusKurumSayilari).map((sehirKodu) => {
+                const cityElement = document.getElementById(sehirKodu);
+                if (!cityElement) return null;
+                
+                let cx = 300, cy = 150;
+                
+                try {
+                  const bbox = cityElement.getBBox();
+                  cx = bbox.x + bbox.width / 2;
+                  cy = bbox.y + bbox.height / 2;
+                } catch (e) {
+                  console.error(`Error getting bbox for ${sehirKodu}:`, e);
+                }
+                
+                return (
+                  <g key={sehirKodu} onClick={() => handleCityClick(sehirKodu)}>
+                    {/* Ana şehir noktası */}
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r="10"
+                      fill="#ff6f61"
+                      fillOpacity="0.8"
+                      stroke="white"
+                      strokeWidth="2"
+                      style={{ 
+                        cursor: 'pointer', 
+                        transition: 'all 0.2s ease',
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.setAttribute('r', '12');
+                        e.currentTarget.setAttribute('fillOpacity', '0.9');
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.setAttribute('r', '10');
+                        e.currentTarget.setAttribute('fillOpacity', '0.8');
+                      }}
+                    />
+                    {/* Kurum sayısı */}
+                    <text
+                      x={cx}
+                      y={cy + 4}
+                      textAnchor="middle"
+                      fill="white"
+                      fontSize="10"
+                      fontWeight="bold"
+                      style={{ pointerEvents: 'none' }}
+                    >
+                      {rusKurumSayilari[sehirKodu]}
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* Yakınlaştırılmış görünümde kurum noktaları */}
+              {zoomedCity && russianCenters
+                .filter(center => center.cityCode === zoomedCity)
+                .map(institution => (
+                  <g 
+                    key={institution.id} 
+                    onClick={(e) => handleInstitutionClick(e, institution)}
+                  >
+                    {/* Kurum noktası */}
+                    <circle
+                      cx={institution.location.x}
+                      cy={institution.location.y}
+                      r="5"
+                      fill={getMarkerColor(institution.type)}
+                      fillOpacity="0.9"
+                      stroke="white"
+                      strokeWidth="1"
+                      style={{ 
+                        cursor: 'pointer', 
+                        transition: 'all 0.2s ease',
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.setAttribute('r', '7');
+                        e.currentTarget.setAttribute('fillOpacity', '1');
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.setAttribute('r', '5');
+                        e.currentTarget.setAttribute('fillOpacity', '0.9');
+                      }}
+                    />
+                  </g>
+                ))
+              }
+              
+              {/* Seçilen kurum için dinamik boyutlandırılmış pop-up */}
+              {selectedInstitution && (() => {
+                const popupPos = adjustPopupPosition(selectedInstitution);
+                
+                // Uzunluğu sınırla
+                const truncate = (text, maxLength) => 
+                  text && text.length > maxLength ? text.substring(0, maxLength) + '...' : text || '';
+                
+                // Esnek boyutlar için popupPos'daki değerleri kullan
+                const popupWidth = popupPos.width || 160;
+                const popupHeight = popupPos.height || 85;
+                
+                // Adres kısa mu uzun mu kontrol et
+                const address = selectedInstitution.address || '';
+                const isLongAddress = address.length > 35;
+                
+                // Adres satırlarını hesapla
+                let addressLines = [];
+                if (isLongAddress) {
+                  // Uzun adresi satırlara böl (35 karakter civarı)
+                  const words = address.split(' ');
+                  let currentLine = '';
+                  
+                  words.forEach(word => {
+                    if ((currentLine + ' ' + word).length <= 35) {
+                      currentLine = currentLine ? currentLine + ' ' + word : word;
+                    } else {
+                      addressLines.push(currentLine);
+                      currentLine = word;
+                    }
+                  });
+                  
+                  if (currentLine) {
+                    addressLines.push(currentLine);
+                  }
+                } else {
+                  addressLines = [address];
+                }
+                
+                return (
+                  <g key="popup">
+                    {/* Pop-up arka planı - dinamik genişlik ve yükseklik */}
+                    <rect
+                      x={popupPos.x}
+                      y={popupPos.y}
+                      width={popupWidth}
+                      height={popupHeight}
+                      rx="5"
+                      ry="5"
+                      fill="rgba(255, 255, 255, 0.97)"
+                      stroke="#ddd"
+                      strokeWidth="0.5"
+                      filter="url(#shadowFilter)"
+                    />
+                    
+                    {/* Gölge efekti */}
+                    <defs>
+                      <filter id="shadowFilter" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/>
+                        <feOffset dx="0" dy="1" result="offsetblur"/>
+                        <feFlood floodColor="#000000" floodOpacity="0.1"/>
+                        <feComposite in2="offsetblur" operator="in"/>
+                        <feMerge>
+                          <feMergeNode/>
+                          <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                      </filter>
+                    </defs>
+                    
+                    {/* Kapatma butonu - sağ üst köşede ve genişlikle orantılı */}
+                    <g onClick={handleClosePopup} style={{cursor: 'pointer'}} transform={`translate(${popupPos.x + popupWidth - 8}, ${popupPos.y + 8})`}>
+                      <circle r="4" fill="#f0f0f0" stroke="#ccc" strokeWidth="0.5"/>
+                      <line x1="-2" y1="-2" x2="2" y2="2" stroke="#888" strokeWidth="0.8" />
+                      <line x1="2" y1="-2" x2="-2" y2="2" stroke="#888" strokeWidth="0.8" />
+                    </g>
+                    
+                    {/* Başlık - kurum adı */}
+                    <text
+                      x={popupPos.x + 10}
+                      y={popupPos.y + 15}
+                      textAnchor="start"
+                      fill="#ff6f61"
+                      fontSize="7"
+                      fontWeight="bold"
+                    >
+                      {truncate(selectedInstitution.name, Math.floor(popupWidth / 5))}
+                    </text>
+                    
+                    {/* Ayırıcı çizgi - genişlikle orantılı */}
+                    <line
+                      x1={popupPos.x + 10}
+                      y1={popupPos.y + 20}
+                      x2={popupPos.x + popupWidth - 10}
+                      y2={popupPos.y + 20}
+                      stroke="#eee"
+                      strokeWidth="0.8"
+                    />
+                    
+                    {/* Şehir bilgisi */}
+                    <text
+                      x={popupPos.x + 10}
+                      y={popupPos.y + 32}
+                      textAnchor="start"
+                      fill="#555"
+                      fontSize="6"
+                    >
+                      <tspan fontWeight="bold">Şehir:</tspan> {document.getElementById(zoomedCity)?.getAttribute('title') || ''}
+                    </text>
+                    
+                    {/* Kurum türü */}
+                    <text
+                      x={popupPos.x + 10}
+                      y={popupPos.y + 42}
+                      textAnchor="start"
+                      fill="#555"
+                      fontSize="6"
+                    >
+                      <tspan fontWeight="bold">Tür:</tspan> {selectedInstitution.type}
+                    </text>
+                    
+                    {/* Adres - satır sayısına göre dinamik pozisyonlama */}
+                    <text
+                      x={popupPos.x + 10}
+                      y={popupPos.y + 52}
+                      textAnchor="start"
+                      fill="#555"
+                      fontSize="6"
+                    >
+                      <tspan fontWeight="bold">Adres:</tspan>
+                    </text>
+                    
+                    {/* Adres satırları - dinamik olarak birden fazla satır olabilir */}
+                    {addressLines.map((line, index) => (
+                      <text
+                        key={`addr-${index}`}
+                        x={popupPos.x + 10}
+                        y={popupPos.y + 52 + ((index + 1) * 8)}
+                        textAnchor="start"
+                        fill="#555"
+                        fontSize="5.5"
+                      >
+                        {line}
+                      </text>
+                    ))}
+                    
+                    {/* Web sitesi linki - dinamik pozisyonlama */}
+                    <a 
+                      href={`https://${selectedInstitution.website}`} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                    >
+                      <text
+                        x={popupPos.x + 10}
+                        y={popupPos.y + popupHeight - 10}
+                        textAnchor="start"
+                        fill="#6b5b95"
+                        fontSize="6"
+                        fontWeight="bold"
+                        style={{cursor: 'pointer'}}
+                      >
+                        {selectedInstitution.website}
+                      </text>
+                    </a>
+                    
+                    {/* Pop-up'tan noktaya yönlendirilen ok işareti */}
+                    {Math.abs(popupPos.x + (popupWidth/2) - selectedInstitution.location.x) < popupWidth && 
+                     popupPos.y > selectedInstitution.location.y && (
+                      <polygon
+                        points={`${selectedInstitution.location.x - 4},${popupPos.y} ${selectedInstitution.location.x},${selectedInstitution.location.y + 4} ${selectedInstitution.location.x + 4},${popupPos.y}`}
+                        fill="rgba(255, 255, 255, 0.97)"
+                        stroke="#ddd"
+                        strokeWidth="0.5"
+                      />
+                    )}
+                  </g>
+                );
+              })()}
+            </g>
+          </svg>
+        </div>
+      </div>
+      
+      {/* Lejant */}
+      <div className="info-legend" style={{ 
+        position: 'absolute', 
+        bottom: '20px', 
+        right: '20px',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        padding: '10px',
+        borderRadius: '5px',
+        boxShadow: '0 0 10px rgba(0,0,0,0.2)',
+        borderLeft: '4px solid #ff6f61',
+        fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+        fontSize: '12px',
+        lineHeight: '16px',
+        color: '#555',
+        display: zoomedCity ? 'block' : 'none'
+      }}>
+        <div style={{ margin: '0 0 5px', color: '#ff6f61', fontSize: '14px', fontWeight: 'bold' }}>Rus Merkezleri</div>
+        {['Büyükelçilik', 'Konsolosluk', 'Ticaret', 'Enerji', 'Kültür'].map(type => (
+          <div key={type} style={{ marginBottom: '4px' }}>
+            <span style={{ 
+              display: 'inline-block',
+              width: '12px',
+              height: '12px',
+              backgroundColor: getMarkerColor(type),
+              borderRadius: '50%',
+              marginRight: '5px',
+              border: '1px solid white'
+            }}></span> {type}
+          </div>
+        ))}
+      </div>
+      
+      {/* Bilgi kutusu */}
+      <div className="info-title" style={{ 
+        position: 'absolute', 
+        top: '100px', 
+        left: '20px',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        padding: '8px',
+        borderRadius: '5px',
+        boxShadow: '0 0 10px rgba(0,0,0,0.2)',
+        borderLeft: '4px solid #ff6f61',
+        fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+        fontSize: '12px',
+        color: '#555',
+        display: zoomedCity ? 'block' : 'none'
+      }}>
+        <div style={{ margin: '0 0 3px', color: '#ff6f61', fontSize: '14px', fontWeight: 'bold' }}>Rusya Merkezleri</div>
+        <p style={{ fontSize: '11px', margin: '2px 0' }}>Bilgi için noktalara tıklayınız</p>
+      </div>
+      
+      {/* Seçilen şehre ait bilgi paneli */}
+      {selectedCity && !zoomedCity && (
+        <div className='mt-3 p-3 bg-white rounded shadow'>
+          <h4 style={{ color: '#6b5b95' }}>{document.getElementById(selectedCity)?.getAttribute('title') || 'Seçilen Şehir'}</h4>
+          <p>Bu şehirde {rusKurumSayilari[selectedCity] || 0} adet Rus kurumu bulunmaktadır.</p>
+          <button 
+            className="btn btn-sm btn-danger mt-2" 
+            style={{ backgroundColor: '#ff6f61', borderColor: '#ff6f61' }}
+            onClick={() => handleCityClick(selectedCity)}
+          >
+            Kurumları Görüntüle
+          </button>
+        </div>
+      )}
+      
+      {/* CSS Stiller */}
+      <style jsx>{`
+        .map-container {
+          background-color: white;
+          border-radius: 12px;
+          box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+          padding: 20px;
+          margin-bottom: 30px;
+          position: relative;
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default TurkeyMap;
