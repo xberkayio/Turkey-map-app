@@ -866,7 +866,7 @@ const TurkeyMap = () => {
         }
         
         .city-path:hover {
-          fill: #2dd4bf !important;
+          fill: #DA291C !important;
         }
         
         /* Facility Points */
