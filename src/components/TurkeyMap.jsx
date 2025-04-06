@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import pathData from '../data/path.json';
-import ruseviankara from '../images/ruseviankara.png'
+import ruseviankara from '../images/ruseviankara.png';
+import { zoom, zoomIdentity } from 'd3-zoom';
+import { select } from 'd3-selection';
+import 'd3-transition';
 
 const TurkeyMap = () => {
   // İl bazında Rus kurumları (gerçek coğrafi koordinatlarla)
@@ -26,10 +29,8 @@ const TurkeyMap = () => {
     ]
   };
 
-  // Paths state - now using imported path data
-  const [provincePaths, setProvincePaths] = useState([]);
-  
-  // Kurumları koordinatlarla ilgili illere eşleme
+  // State değişkenleri
+  const [provincePaths, setProvincePaths] = useState([]);  
   const [locationMappings, setLocationMappings] = useState({});
   const [russianCenters, setRussianCenters] = useState([]);
 
@@ -39,20 +40,53 @@ const TurkeyMap = () => {
     rusKurumSayilari[sehirKodu] = sehirRusya[sehirKodu].length;
   });
 
+  // UI state
   const [hoverCity, setHoverCity] = useState(null);
   const [selectedCity, setSelectedCity] = useState(null);
   const [zoomedCity, setZoomedCity] = useState(null);
   const [selectedInstitution, setSelectedInstitution] = useState(null);
   const [mapViewBox, setMapViewBox] = useState("0 0 800 350");
   const [showSideMenu, setShowSideMenu] = useState(false);
+  const [currentZoomLevel, setCurrentZoomLevel] = useState(1);
+  
+  // Referanslar
   const mapRef = useRef(null);
   const svgRef = useRef(null);
+  const gRef = useRef(null);
+  const zoomBehaviorRef = useRef(null);
 
-  // Load path data
+  // Path verilerini yükle
   useEffect(() => {
-    // Set province paths from imported data
     setProvincePaths(pathData);
     console.log("Loaded path data:", pathData);
+  }, []);
+
+  // D3 zoom davranışı ayarla
+  useEffect(() => {
+    if (!svgRef.current || !gRef.current) return;
+    
+    const svg = select(svgRef.current);
+    const g = select(gRef.current);
+
+    const zoomHandler = zoom()
+      .scaleExtent([0.8, 5]) // Min ve max zoom seviyesi
+      .translateExtent([[0, 0], [800, 350]]) // Kaydırma sınırları
+      .on('zoom', (event) => {
+        g.attr('transform', event.transform.toString());
+        setCurrentZoomLevel(event.transform.k); // Zoom seviyesini güncelle
+      });
+
+    svg.call(zoomHandler);
+    zoomBehaviorRef.current = zoomHandler;
+    
+    // Başlangıçta zoom'u ayarla
+    svg.transition()
+      .duration(750)
+      .call(zoomHandler.transform, zoomIdentity);
+      
+    return () => {
+      svg.on('.zoom', null);
+    };
   }, []);
 
   // Kurum türüne göre renk belirleme - Rus bayrağı renkleri kullanılıyor
@@ -67,15 +101,24 @@ const TurkeyMap = () => {
     }
   };
 
-  const pathStyles = (cityID) => ({
-    cursor: "pointer",
-    transition: "all 0.3s ease-in-out",
-    transform: hoverCity === cityID ? 'scale(1.008)' : 'scale(1)', 
-    fill: selectedCity === cityID ? '#0032A0' // Mavi
-           : hoverCity === cityID ? '#DA291C' // Kırmızı 
-           : '#6c757d',
-    opacity: zoomedCity && zoomedCity !== cityID ? 0.3 : 1,
-  });
+  // Modern stil için şehir path stilleri
+  const pathStyles = (cityID) => {
+    const isSelected = selectedCity === cityID;
+    const isHovered = hoverCity === cityID;
+    const isZoomed = zoomedCity && zoomedCity !== cityID;
+    
+    return {
+      cursor: "pointer",
+      transition: "all 0.3s ease-in-out",
+      transform: isHovered ? 'scale(1.008)' : 'scale(1)',
+      fill: isSelected ? '#0032A0' // Mavi
+           : isHovered ? '#DA291C' // Kırmızı 
+           : '#a0aec0', // Modern gri
+      stroke: '#4a5568', // Kenar rengi
+      strokeWidth: 0.5,
+      opacity: isZoomed ? 0.3 : 1,
+    };
+  };
   
   // Coğrafi koordinatları SVG koordinatlarına dönüştürme
   const calculateSVGCoordinates = () => {
@@ -135,10 +178,7 @@ const TurkeyMap = () => {
   const handleCityClick = (cityID) => {
     if (zoomedCity === cityID) {
       // Eğer zaten yakınlaştırılmış şehre tıklanmışsa, uzaklaştır
-      setZoomedCity(null);
-      setMapViewBox("0 0 800 350");
-      setSelectedInstitution(null);
-      setShowSideMenu(false);
+      resetMap();
     } else {
       setSelectedCity(cityID);
       setZoomedCity(cityID);
@@ -146,20 +186,31 @@ const TurkeyMap = () => {
       
       // Şehrin SVG path elementini bul
       const cityPath = document.getElementById(cityID);
-      if (cityPath) {
+      if (cityPath && zoomBehaviorRef.current) {
         const bbox = cityPath.getBBox();
         
-        // Şehrin etrafına biraz boşluk bırakarak yakınlaştır
-        const padding = 50;
-        const viewBox = `${bbox.x - padding} ${bbox.y - padding} ${bbox.width + padding*2} ${bbox.height + padding*2}`;
-        setMapViewBox(viewBox);
+        // D3 zoom ile daha yumuşak yakınlaştırma
+        const svg = select(svgRef.current);
+        const svgWidth = 800;
+        const svgHeight = 350;
+        const targetScale = 2;
+        const targetX = svgWidth / 2 - (bbox.x + bbox.width / 2) * targetScale;
+        const targetY = svgHeight / 2 - (bbox.y + bbox.height / 2) * targetScale;
+        const targetTransform = zoomIdentity.translate(targetX, targetY).scale(targetScale);
+        
+        svg.transition()
+          .duration(1000)
+          .call(zoomBehaviorRef.current.transform, targetTransform)
+          .on('end', () => {
+            setCurrentZoomLevel(targetScale);
+          });
       }
     }
   };
 
   // Rus kurumuna tıklama işlemi
   const handleInstitutionClick = (e, institution) => {
-    e.stopPropagation(); // Tıklamanın il tıklamasını tetiklememesi için
+    if (e) e.stopPropagation(); // Tıklamanın il tıklamasını tetiklememesi için
     
     // Zaten seçiliyse yan menüyü kapat, değilse aç
     if (selectedInstitution && selectedInstitution.id === institution.id && showSideMenu) {
@@ -238,16 +289,42 @@ const TurkeyMap = () => {
     setMapViewBox("0 0 800 350");
     setSelectedInstitution(null);
     setShowSideMenu(false);
+
+    // D3 zoom ile sıfırla
+    if (zoomBehaviorRef.current) {
+      const svg = select(svgRef.current);
+      svg.transition()
+        .duration(750)
+        .call(zoomBehaviorRef.current.transform, zoomIdentity)
+        .on('end', () => {
+          setCurrentZoomLevel(1);
+        });
+    }
   };
+  
+  // Debounce fonksiyonu
+  function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  }
   
   // Kurum pozisyonlarını hesapla
   useEffect(() => {
     // Şehir elementleri hazır olduğunda konum hesaplaması yap
-    const timer = setTimeout(() => {
-      calculateSVGCoordinates();
-    }, 1000); // Daha uzun bekle - SVG elementlerinin oluşması için
-    
-    return () => clearTimeout(timer);
+    if (provincePaths.length > 0) {
+      const timer = setTimeout(() => {
+        calculateSVGCoordinates();
+      }, 1000); // Daha uzun bekle - SVG elementlerinin oluşması için
+      
+      return () => clearTimeout(timer);
+    }
   }, [provincePaths]); // provincePaths değiştiğinde tekrar hesapla
 
   useEffect(() => {
@@ -260,6 +337,10 @@ const TurkeyMap = () => {
   const isDataEmpty = provincePaths.length === 0 || 
                       provincePaths[0]?.d === "" || 
                       !provincePaths[0]?.d;
+
+  // Görünürlüğü zoom seviyesine göre belirleme
+  const showCityLabels = currentZoomLevel < 1.5;
+  const showFacilityPoints = currentZoomLevel > 1.5;
 
   return (
     <div className='mt-4'>
@@ -294,6 +375,7 @@ const TurkeyMap = () => {
         </div>
       )}
       
+      {/* Modern Harita Konteyneri Stili */}
       <div className='position-relative' style={{ display: 'flex' }}>
         {/* Yan Menü */}
         {showSideMenu && selectedInstitution && (
@@ -308,7 +390,8 @@ const TurkeyMap = () => {
             height: zoomedCity ? '600px' : 'auto',
             overflowY: 'auto',
             transition: 'all 0.3s ease',
-            position: 'relative'
+            position: 'relative',
+            animation: 'slideIn 0.3s ease-out'
           }}>
             <button 
               className="btn btn-sm" 
@@ -447,190 +530,309 @@ const TurkeyMap = () => {
           </div>
         )}
         
-        {/* Harita Bölümü */}
+        {/* Harita Bölümü - Modern UI */}
         <div 
           className='map-container' 
           onClick={handleMapClick}
           style={{ 
             width: showSideMenu ? '70%' : '100%', 
-            transition: 'all 0.3s ease'
+            transition: 'all 0.3s ease',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            padding: '20px',
+            marginBottom: '30px',
+            position: 'relative',
+            overflow: 'hidden'  // Zoom ve pan için önemli
           }}
         >
-          <svg 
-            ref={svgRef}
-            id="svg-turkey-map" 
-            xmlns="http://www.w3.org/2000/svg" 
-            version="1.1" 
-            viewBox={mapViewBox}
-            width="100%" 
-            height="600px"
-          >
-            <g>
-              {/* JSON'dan yüklenen il haritaları */}
-              {provincePaths.map((province, index) => (
-                <path 
-                  key={province.plaka || `province-${index}`}
-                  data-city-name={province.ilismi?.toLowerCase() || ""} 
-                  title={province.ilismi || ""} 
-                  className="city" 
-                  d={province.d || ""}
-                  id={province.plaka || `province-${index}`}
-                  style={pathStyles(province.plaka)}
-                  onMouseEnter={() => setHoverCity(province.plaka)}
-                  onMouseLeave={() => setHoverCity(null)}
-                  onClick={() => handleCityClick(province.plaka)}
-                />
-              ))}
+          {/* Harita Kontrolleri */}
+          <div className="map-controls" style={{
+            position: 'absolute',
+            bottom: '20px',
+            left: '20px',
+            zIndex: '100',
+            display: 'flex',
+            alignItems: 'center',
+            backgroundColor: 'white',
+            padding: '6px',
+            borderRadius: '8px',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
+          }}>
+            <button
+              className="map-control-btn reset-btn"
+              onClick={resetMap}
+              title="Haritayı Sıfırla"
+              style={{
+                backgroundColor: 'white',
+                border: '1px solid #ddd',
+                borderRadius: '6px',
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                marginRight: '8px',
+                color: '#555',
+                transition: 'background-color 0.2s, border-color 0.2s'
+              }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 2v6h6"></path>
+                <path d="M21 12A9 9 0 0 0 6 5.3L3 8"></path>
+                <path d="M21 22v-6h-6"></path>
+                <path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"></path>
+              </svg>
+            </button>
+            
+            <div className="zoom-indicator-wrapper" style={{
+              width: '64px',
+              height: '6px',
+              backgroundColor: '#e9ecef',
+              borderRadius: '3px',
+              overflow: 'hidden'
+            }}>
+              <div
+                className="zoom-indicator-level"
+                style={{
+                  height: '100%',
+                  backgroundColor: '#14b8a6',
+                  width: `${((currentZoomLevel - 0.8) / (5 - 0.8)) * 100}%`,
+                  transition: 'width 0.15s linear',
+                  borderRadius: '3px'
+                }}
+              ></div>
+            </div>
+          </div>
 
-              {/* Genel harita görünümünde il noktaları */}
-              {!zoomedCity && Object.keys(rusKurumSayilari).map((sehirKodu) => {
-                const cityElement = document.getElementById(sehirKodu);
-                if (!cityElement) return null;
-                
-                let cx = 300, cy = 150;
-                
-                try {
-                  const bbox = cityElement.getBBox();
-                  cx = bbox.x + bbox.width / 2;
-                  cy = bbox.y + bbox.height / 2;
-                } catch (e) {
-                  console.error(`Error getting bbox for ${sehirKodu}:`, e);
-                }
+          
+          {/* Başlık Kutusu */}
+          <div className="title-box" style={{
+            position: 'absolute',
+            top: '20px',
+            left: '20px',
+            backgroundColor: 'white',
+            padding: '12px',
+            borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            zIndex: '100',
+            minWidth: '180px'
+          }}>
+            <h3 className="title-box-heading" style={{
+              fontWeight: '600',
+              fontSize: '1rem',
+              color: '#333',
+              marginBottom: '2px'
+            }}>
+              Türkiye'deki Rus Kurumları
+            </h3>
+            <p className="title-box-subheading" style={{
+              fontSize: '0.75rem',
+              color: '#666',
+              margin: 0
+            }}>
+              {zoomedCity ? document.getElementById(zoomedCity)?.getAttribute('title') : 'Görüntülemek için şehirlere tıklayın'}
+            </p>
+          </div>
+
+          {/* Lejant */}
+          <div className="map-legend" style={{
+            position: 'absolute',
+            bottom: '20px',
+            right: '20px',
+            backgroundColor: 'white',
+            padding: '12px',
+            borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            zIndex: '100',
+            minWidth: '150px',
+            fontSize: '0.875rem'
+          }}>
+            <h3 className="legend-title" style={{
+              fontWeight: '600',
+              color: '#444',
+              marginBottom: '8px',
+              paddingBottom: '4px',
+              borderBottom: '1px solid #eee'
+            }}>Lejant</h3>
+            <div className="legend-item" style={{ display: 'flex', alignItems: 'center', margin: '6px 0' }}>
+              <span className="legend-color city-legend" style={{ 
+                width: '16px', 
+                height: '16px', 
+                borderRadius: '50%', 
+                marginRight: '8px',
+                backgroundColor: '#14b8a6',
+                border: '1px solid rgba(0,0,0,0.1)'
+              }}></span>
+              <span className="legend-label" style={{ fontSize: '0.75rem', color: '#555' }}>Şehir & Kurum Sayısı</span>
+            </div>
+            <div className="legend-item" style={{ display: 'flex', alignItems: 'center', margin: '6px 0' }}>
+              <span className="legend-color facility-legend" style={{ 
+                width: '16px', 
+                height: '16px', 
+                borderRadius: '50%', 
+                marginRight: '8px',
+                backgroundColor: '#DA291C',
+                border: '1px solid rgba(0,0,0,0.1)'
+              }}></span>
+              <span className="legend-label" style={{ fontSize: '0.75rem', color: '#555' }}>Rus Kurumu</span>
+            </div>
+          </div>
+
+          {/* SVG Harita Alanı */}
+          <svg ref={svgRef} viewBox="0 0 800 350" className="turkey-svg" style={{
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            cursor: 'move'
+          }}>
+            <rect x="0" y="0" width="800" height="350" fill="transparent" className="zoom-capture-rect" />
+            <g ref={gRef}>
+            <rect x="0" y="0" width="800" height="350" className="map-background" fill="#ffffff" />
+              
+              {/* Şehirleri JSON'dan map ile oluşturma */}
+              {provincePaths.map((province, index) => {
+                const cityCode = province.plaka;
+                const hasRussianCenters = cityCode && sehirRusya[cityCode];
+                const centerCount = hasRussianCenters ? sehirRusya[cityCode].length : 0;
                 
                 return (
-                  <g key={sehirKodu} onClick={() => handleCityClick(sehirKodu)}>
-                    {/* Ana şehir noktası */}
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r="10"
-                      fill="#DA291C" // Rus bayrağı kırmızı
-                      fillOpacity="0.8"
-                      stroke="white"
-                      strokeWidth="2"
-                      style={{ 
-                        cursor: 'pointer', 
-                        transition: 'all 0.2s ease',
-                      }}
-                      onMouseOver={(e) => {
-                        e.currentTarget.setAttribute('r', '12');
-                        e.currentTarget.setAttribute('fillOpacity', '0.9');
-                      }}
-                      onMouseOut={(e) => {
-                        e.currentTarget.setAttribute('r', '10');
-                        e.currentTarget.setAttribute('fillOpacity', '0.8');
-                      }}
+                  <g key={cityCode || `province-${index}`} className="city-group">
+                    {/* Şehir yolu */}
+                    <path
+                      id={cityCode}
+                      title={province.ilismi}
+                      className="city-path"
+                      d={province.d}
+                      style={pathStyles(cityCode)}
+                      onMouseEnter={() => setHoverCity(cityCode)}
+                      onMouseLeave={() => setHoverCity(null)}
+                      onClick={() => handleCityClick(cityCode)}
                     />
-                    {/* Kurum sayısı */}
-                    <text
-                      x={cx}
-                      y={cy + 4}
-                      textAnchor="middle"
-                      fill="white"
-                      fontSize="10"
-                      fontWeight="bold"
-                      style={{ pointerEvents: 'none' }}
-                    >
-                      {rusKurumSayilari[sehirKodu]}
-                    </text>
+                    
+                    {/* Şehir merkezi marker (sadece Rus kurumu olan şehirler için) */}
+                    {hasRussianCenters && !zoomedCity && (
+                      (() => {
+                        // Şehir elementini bul ve merkezini hesapla
+                        const cityElement = document.getElementById(cityCode);
+                        if (!cityElement) return null;
+                        
+                        let cx = 300, cy = 150; // Varsayılan
+                        
+                        try {
+                          const bbox = cityElement.getBBox();
+                          cx = bbox.x + bbox.width / 2;
+                          cy = bbox.y + bbox.height / 2;
+                        } catch (e) {
+                          console.error(`Error getting bbox for ${cityCode}:`, e);
+                        }
+                        
+                        return (
+                          <g onClick={() => handleCityClick(cityCode)}>
+                            {/* Ana şehir noktası */}
+                            <circle
+                              cx={cx}
+                              cy={cy}
+                              r="10"
+                              fill="#14b8a6" // Modern teal renk
+                              fillOpacity="0.8"
+                              stroke="white"
+                              strokeWidth="2"
+                              style={{ 
+                                cursor: 'pointer', 
+                                transition: 'all 0.2s ease',
+                              }}
+                            />
+                            {/* Kurum sayısı */}
+                            <text
+                              x={cx}
+                              y={cy + 4}
+                              textAnchor="middle"
+                              fill="white"
+                              fontSize="10"
+                              fontWeight="bold"
+                              style={{ pointerEvents: 'none' }}
+                            >
+                              {centerCount}
+                            </text>
+                          </g>
+                        );
+                      })()
+                    )}
+                    
+                    {/* Kurumlar (yakınlaştırıldığında göster) */}
+                    {zoomedCity === cityCode && russianCenters
+                      .filter(center => center.cityCode === cityCode)
+                      .map((institution) => (
+                        <g 
+                          key={institution.id} 
+                          onClick={(e) => handleInstitutionClick(e, institution)}
+                        >
+                          {/* Kurum noktası */}
+                          <circle
+                            cx={institution.location.x}
+                            cy={institution.location.y}
+                            r="5"
+                            fill={getMarkerColor(institution.type)}
+                            fillOpacity={selectedInstitution && selectedInstitution.id === institution.id ? '1' : '0.9'}
+                            stroke={selectedInstitution && selectedInstitution.id === institution.id ? '#fff' : 'white'}
+                            strokeWidth={selectedInstitution && selectedInstitution.id === institution.id ? '2' : '1'}
+                            style={{ 
+                              cursor: 'pointer', 
+                              transition: 'all 0.2s ease',
+                            }}
+                          />
+                        </g>
+                      ))
+                    }
                   </g>
                 );
               })}
-
-              {/* Yakınlaştırılmış görünümde kurum noktaları */}
-              {zoomedCity && russianCenters
-                .filter(center => center.cityCode === zoomedCity)
-                .map(institution => (
-                  <g 
-                    key={institution.id} 
-                    onClick={(e) => handleInstitutionClick(e, institution)}
-                  >
-                    {/* Kurum noktası */}
-                    <circle
-                      cx={institution.location.x}
-                      cy={institution.location.y}
-                      r="5"
-                      fill={getMarkerColor(institution.type)}
-                      fillOpacity={selectedInstitution && selectedInstitution.id === institution.id ? '1' : '0.9'}
-                      stroke={selectedInstitution && selectedInstitution.id === institution.id ? '#fff' : 'white'}
-                      strokeWidth={selectedInstitution && selectedInstitution.id === institution.id ? '2' : '1'}
-                      style={{ 
-                        cursor: 'pointer', 
-                        transition: 'all 0.2s ease',
-                      }}
-                      onMouseOver={(e) => {
-                        e.currentTarget.setAttribute('r', '7');
-                        e.currentTarget.setAttribute('fillOpacity', '1');
-                      }}
-                      onMouseOut={(e) => {
-                        if (!(selectedInstitution && selectedInstitution.id === institution.id)) {
-                          e.currentTarget.setAttribute('r', '5');
-                          e.currentTarget.setAttribute('fillOpacity', '0.9');
-                        }
-                      }}
-                    />
-                  </g>
-                ))
-              }
             </g>
           </svg>
-        </div>
-      </div>
-      
-      {/* Lejant */}
-      <div className="info-legend" style={{ 
-        position: 'absolute', 
-        bottom: '20px', 
-        right: '20px',
-        backgroundColor: 'rgba(255, 255, 255, 0.95)',
-        padding: '10px',
-        borderRadius: '5px',
-        boxShadow: '0 0 10px rgba(0,0,0,0.2)',
-        borderLeft: '4px solid #DA291C', // Rus bayrağı kırmızı
-        fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-        fontSize: '12px',
-        lineHeight: '16px',
-        color: '#555',
-        display: zoomedCity ? 'block' : 'none'
-      }}>
-        <div style={{ margin: '0 0 5px', color: '#DA291C', fontSize: '14px', fontWeight: 'bold' }}>Rus Merkezleri</div>
-        {['Büyükelçilik', 'Konsolosluk', 'Ticaret', 'Enerji', 'Kültür'].map(type => (
-          <div key={type} style={{ marginBottom: '4px' }}>
-            <span style={{ 
-              display: 'inline-block',
-              width: '12px',
-              height: '12px',
-              backgroundColor: getMarkerColor(type),
-              borderRadius: '50%',
-              marginRight: '5px',
-              border: '1px solid white'
-            }}></span> {type}
+
+          {/* Pinch-zoom talimatları (mobil için) */}
+          <div className="zoom-instructions" style={{
+            position: 'absolute',
+            bottom: '60px',
+            right: '12px',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            color: 'white',
+            fontSize: '0.7rem',
+            padding: '3px 8px',
+            borderRadius: '4px',
+            pointerEvents: 'none',
+            zIndex: '90',
+            display: 'none' // Varsayılan olarak gizli, media query ile gösterilecek
+          }}>
+            Yakınlaşmak için iki parmağınızla uzaklaştırın.
           </div>
-        ))}
+
+          {/* Zoomed şehir bilgisi */}
+          {!showSideMenu && zoomedCity && (
+            <div className="info-title" style={{ 
+              position: 'absolute', 
+              top: '100px', 
+              left: '20px',
+              backgroundColor: 'rgba(255, 255, 255, 0.95)',
+              padding: '8px',
+              borderRadius: '5px',
+              boxShadow: '0 0 10px rgba(0,0,0,0.2)',
+              borderLeft: '4px solid #14b8a6', // Modern teal
+              fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+              fontSize: '12px',
+              color: '#555'
+            }}>
+              <div style={{ margin: '0 0 3px', color: '#14b8a6', fontSize: '14px', fontWeight: 'bold' }}>
+                {document.getElementById(zoomedCity)?.getAttribute('title')}
+              </div>
+              <p style={{ fontSize: '11px', margin: '2px 0' }}>Bilgi için kurum noktalarına tıklayınız</p>
+            </div>
+          )}
+        </div>
       </div>
       
-      {/* Bilgi kutusu - yan menü açıkken gizle */}
-      {!showSideMenu && (
-        <div className="info-title" style={{ 
-          position: 'absolute', 
-          top: '100px', 
-          left: '20px',
-          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          padding: '8px',
-          borderRadius: '5px',
-          boxShadow: '0 0 10px rgba(0,0,0,0.2)',
-          borderLeft: '4px solid #DA291C', // Rus bayrağı kırmızı
-          fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-          fontSize: '12px',
-          color: '#555',
-          display: zoomedCity ? 'block' : 'none'
-        }}>
-          <div style={{ margin: '0 0 3px', color: '#DA291C', fontSize: '14px', fontWeight: 'bold' }}>Rusya Merkezleri</div>
-          <p style={{ fontSize: '11px', margin: '2px 0' }}>Bilgi için noktalara tıklayınız</p>
-        </div>
-      )}
-      
-      {/* CSS Stiller */}
       <style jsx>{`
         .map-container {
           background-color: white;
@@ -639,6 +841,7 @@ const TurkeyMap = () => {
           padding: 20px;
           margin-bottom: 30px;
           position: relative;
+          height: 600px;
         }
         
         .side-menu {
@@ -653,6 +856,32 @@ const TurkeyMap = () => {
           to {
             transform: translateX(0);
             opacity: 1;
+          }
+        }
+        
+        /* City path transitions */
+        .city-path {
+          transition: fill 0.15s ease-in-out, stroke-width 0.15s ease-in-out, transform 0.2s ease-out;
+          cursor: pointer;
+        }
+        
+        .city-path:hover {
+          fill: #2dd4bf !important;
+        }
+        
+        /* Facility Points */
+        .facility-point {
+          transition: r 0.2s ease-out, fill 0.15s ease-in-out, stroke-width 0.15s ease-in-out;
+        }
+        
+        .facility-point:hover {
+          stroke-width: 2;
+        }
+        
+        /* Mobile Touch Instructions */
+        @media (pointer: coarse) {
+          .zoom-instructions {
+            display: block !important;
           }
         }
       `}</style>
