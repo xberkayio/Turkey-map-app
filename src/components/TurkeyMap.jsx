@@ -6,49 +6,38 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 
 const TurkeyMap = () => {
-  // State değişkenleri
   const [provincePaths, setProvincePaths] = useState([]);  
   const [locationMappings, setLocationMappings] = useState({});
   const [russianCenters, setRussianCenters] = useState([]);
   const [russianCentersData, setRussianCentersData] = useState({});
   const [filteredCenters, setFilteredCenters] = useState([]);
-
-  // UI state
   const [hoverCity, setHoverCity] = useState(null);
   const [selectedCity, setSelectedCity] = useState(null);
   const [zoomedCity, setZoomedCity] = useState(null);
   const [selectedInstitution, setSelectedInstitution] = useState(null);
   const [mapViewBox, setMapViewBox] = useState("0 0 800 350");
   const [showSideMenu, setShowSideMenu] = useState(false);
-  const [currentZoomLevel, setCurrentZoomLevel] = useState(1);
-  
-  // Search state
+  const [currentZoomLevel, setCurrentZoomLevel] = useState(1);  
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Hepsi');
   const [suggestions, setSuggestions] = useState([]);
   const [allCategories, setAllCategories] = useState(['Hepsi']);
-  
-  // Referanslar
   const mapRef = useRef(null);
   const svgRef = useRef(null);
   const gRef = useRef(null);
   const zoomBehaviorRef = useRef(null);
   const searchInputRef = useRef(null);
 
-  // Path verilerini yükle
   useEffect(() => {
     setProvincePaths(pathData);
     console.log("Loaded path data:", pathData);
   }, []);
 
-  // JSON dosyasından Rus kurumlarını yükle
   useEffect(() => {
     console.log("Loading Russian institutions from JSON:", russianInstitutionsData);
     
-    // JSON verilerini state'e ata
     setRussianCentersData(russianInstitutionsData);
     
-    // Tüm kategorileri çıkar
     const categories = new Set(['Hepsi']);
     Object.values(russianInstitutionsData).forEach(cityInstitutions => {
       cityInstitutions.forEach(institution => {
@@ -60,20 +49,15 @@ const TurkeyMap = () => {
     
     setAllCategories(Array.from(categories));
     
-    // Başlangıçta tüm merkezleri göster
     filterCentersByCategory('Hepsi', russianInstitutionsData);
     
   }, []);
-
-  // Kategori filtreleme fonksiyonu
   const filterCentersByCategory = (category, data = russianCentersData) => {
     setSelectedCategory(category);
     
     if (category === 'Hepsi') {
-      // Tüm kurumları göster
       setFilteredCenters(data);
     } else {
-      // Sadece seçili kategoriye ait kurumları filtrele
       const filtered = {};
       
       Object.keys(data).forEach(sehirKodu => {
@@ -90,7 +74,6 @@ const TurkeyMap = () => {
     }
   };
 
-  // Arama fonksiyonu
   const handleSearch = (e) => {
     const term = e.target.value;
     setSearchTerm(term);
@@ -100,14 +83,11 @@ const TurkeyMap = () => {
       return;
     }
     
-    // Arama terimini küçük harfe çevir
     const searchTermLower = term.toLowerCase();
     
-    // Tüm kurumlar arasında arama yap
     const allInstitutions = [];
     Object.keys(russianCentersData).forEach(cityCode => {
       russianCentersData[cityCode].forEach(institution => {
-        // Şehir bilgisini de ekleyelim
         const cityElement = document.getElementById(cityCode);
         const cityName = cityElement ? cityElement.getAttribute('title') : cityCode;
         
@@ -119,14 +99,11 @@ const TurkeyMap = () => {
       });
     });
     
-    // Kriterlere göre filtrele
     const matches = allInstitutions.filter(institution => {
-      // Seçili kategoriye göre filtrele (eğer Hepsi değilse)
       if (selectedCategory !== 'Hepsi' && institution.type !== selectedCategory) {
         return false;
       }
       
-      // İsim, açıklama, şehir ve adres içinde arama yap
       return (
         institution.name.toLowerCase().includes(searchTermLower) ||
         (institution.description && institution.description.toLowerCase().includes(searchTermLower)) ||
@@ -135,30 +112,22 @@ const TurkeyMap = () => {
       );
     });
     
-    // Önerileri göster (en fazla 5)
     setSuggestions(matches.slice(0, 5));
   };
   
-  // Kategori değiştiğinde aramaları güncelle
   useEffect(() => {
     if (searchTerm.trim()) {
-      // Kategori değişirse ve arama terimi varsa, aramaları yeni kategoriye göre filtrele
       handleSearch({ target: { value: searchTerm } });
     }
   }, [selectedCategory]);
 
-  // Öneriye tıklama işlemi
   const handleSuggestionClick = (institution) => {
-    // Arama sıfırla
     setSearchTerm('');
     setSuggestions([]);
     
-    // İlgili şehri yakınlaştır
     handleCityClick(institution.cityCode);
     
-    // Biraz bekleyip kurumu seç (animasyon için)
     setTimeout(() => {
-      // Kurum bilgisini tam olarak belirle
       const fullInstitution = russianCenters.find(center => 
         center.name === institution.name && 
         center.cityCode === institution.cityCode
@@ -170,7 +139,6 @@ const TurkeyMap = () => {
     }, 1000);
   };
 
-  // D3 zoom davranışı ayarla - Mouse zoom'u devre dışı bırak
   useEffect(() => {
     if (!svgRef.current || !gRef.current) return;
     
@@ -178,15 +146,15 @@ const TurkeyMap = () => {
     const g = select(gRef.current);
 
     const zoomHandler = zoom()
-      .scaleExtent([0.8, 5]) // Min ve max zoom seviyesi
-      .translateExtent([[0, 0], [800, 350]]) // Kaydırma sınırları
+      .scaleExtent([0.8, 5]) 
+      .translateExtent([[0, 0], [800, 350]]) 
       .on('zoom', (event) => {
         g.attr('transform', event.transform.toString());
-        setCurrentZoomLevel(event.transform.k); // Zoom seviyesini güncelle
+        setCurrentZoomLevel(event.transform.k);
       })
-      // Burada fare tekerleği olaylarını devre dışı bırakıyoruz
+      // Burada fare tekerleği 
       .filter(event => {
-        // Çift tıklamayı (dblclick) da devre dışı bırak
+        // Çift tıklama
         return !event.type.includes('wheel') && 
                !event.type.includes('mouse') &&
                !event.type.includes('dblclick');
@@ -195,7 +163,6 @@ const TurkeyMap = () => {
     svg.call(zoomHandler);
     zoomBehaviorRef.current = zoomHandler;
     
-    // Çift tıklamayı devre dışı bırakmak için event listener ekle
     svg.on('dblclick', event => {
       event.preventDefault();
     });
@@ -290,9 +257,7 @@ const TurkeyMap = () => {
             angle = (2 * Math.PI * index) / totalInstitutions;
           }
           
-          // Her kurum için farklı mesafe kullan, böylece üst üste gelmezler
-          // % 80-90 arası bir yarıçap kullan ki noktalar kesinlikle il içinde kalsın
-          const distanceRatio = 0.8 + (0.1 * (index % 3)); // Üç farklı mesafe seviyesi
+          const distanceRatio = 0.8 + (0.1 * (index % 3)); 
           const radius = safeRadius * distanceRatio;
           
           const position = {
@@ -300,18 +265,14 @@ const TurkeyMap = () => {
             y: cityCenter.y + radius * Math.sin(angle)
           };
           
-          // Pozisyonun il içinde olduğundan emin ol
-          // Pozisyonun il sınırlarını aşması ihtimaline karşı sınırla
           const paddedX = Math.min(Math.max(position.x, bbox.x + 5), bbox.x + bbox.width - 5);
           const paddedY = Math.min(Math.max(position.y, bbox.y + 5), bbox.y + bbox.height - 5);
           
           position.x = paddedX;
           position.y = paddedY;
           
-          // Konum eşlemesini kaydet
           newMappings[institutionId] = position;
           
-          // Kurum verilerini kopyala ve konumu ekle
           newCenters.push({
             ...institution,
             id: institutionId,
@@ -330,27 +291,20 @@ const TurkeyMap = () => {
 
   // Şehre tıklandığında yakınlaştırma işlemi
   const handleCityClick = (cityID) => {
-    // Eğer herhangi bir şehre zaten zoom yapılmışsa, diğer şehirlere tıklamayı engelle
     if (zoomedCity && zoomedCity !== cityID) {
-      // Kullanıcının önce ana haritaya dönmesi gerekiyor
-      // Fakat engelleme işareti göstermeyi iptal ettik, sessizce yoksay
       return;
     }
     
     if (zoomedCity === cityID) {
-      // Eğer zaten yakınlaştırılmış şehre tıklanmışsa, uzaklaştır
       resetMap();
     } else {
       setSelectedCity(cityID);
       setZoomedCity(cityID);
       setShowSideMenu(true); // Şehre zoom yapıldığında sol menüyü otomatik göster
       
-      // Şehrin SVG path elementini bul
       const cityPath = document.getElementById(cityID);
       if (cityPath && zoomBehaviorRef.current) {
         const bbox = cityPath.getBBox();
-        
-        // D3 zoom ile daha yumuşak yakınlaştırma
         const svg = select(svgRef.current);
         const svgWidth = 800;
         const svgHeight = 350;
@@ -369,11 +323,9 @@ const TurkeyMap = () => {
     }
   };
 
-  // Rus kurumuna tıklama işlemi
   const handleInstitutionClick = (e, institution) => {
-    if (e) e.stopPropagation(); // Tıklamanın il tıklamasını tetiklememesi için
-    
-    // Kurumu seç ve yan menüyü göster
+    if (e) e.stopPropagation(); 
+
     setSelectedInstitution(institution);
     setShowSideMenu(true);
   };
