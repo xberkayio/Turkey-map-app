@@ -125,6 +125,10 @@ const TurkeyMap = () => {
     setSearchTerm('');
     setSuggestions([]);
     
+    if (zoomedCity && zoomedCity !== institution.cityCode) {
+      return;
+    }
+    
     handleCityClick(institution.cityCode);
     
     setTimeout(() => {
@@ -152,9 +156,7 @@ const TurkeyMap = () => {
         g.attr('transform', event.transform.toString());
         setCurrentZoomLevel(event.transform.k);
       })
-      // Burada fare tekerleği 
       .filter(event => {
-        // Çift tıklama
         return !event.type.includes('wheel') && 
                !event.type.includes('mouse') &&
                !event.type.includes('dblclick');
@@ -162,6 +164,8 @@ const TurkeyMap = () => {
 
     svg.call(zoomHandler);
     zoomBehaviorRef.current = zoomHandler;
+    
+    svg.style("cursor", "pointer");
     
     svg.on('dblclick', event => {
       event.preventDefault();
@@ -178,7 +182,7 @@ const TurkeyMap = () => {
     };
   }, []);
 
-  // Kurum türüne göre renk belirleme - Rus bayrağı renkleri kullanılıyor
+  // Kurum türüne göre renk belirleme - Rus bayrağı renkleri 
   const getMarkerColor = (type) => {
     switch(type) {
       case 'Büyükelçilik': return '#DA291C'; // Kırmızı
@@ -291,7 +295,9 @@ const TurkeyMap = () => {
 
   // Şehre tıklandığında yakınlaştırma işlemi
   const handleCityClick = (cityID) => {
+    // If we're already zoomed into a city and it's not the same city, prevent the click
     if (zoomedCity && zoomedCity !== cityID) {
+      // Silently prevent clicking on other cities
       return;
     }
     
@@ -365,9 +371,11 @@ const TurkeyMap = () => {
   // Ana haritaya geri dönme
   const resetMap = () => {
     setZoomedCity(null);
+    setSelectedCity(null); // Seçili şehir durumunu da sıfırla
     setMapViewBox("0 0 800 350");
     setSelectedInstitution(null);
     setShowSideMenu(false);
+    setHoverCity(null); // Hover durumunu da temizleyelim
 
     // D3 zoom ile sıfırla
     if (zoomBehaviorRef.current) {
@@ -404,20 +412,35 @@ const TurkeyMap = () => {
     }
   }, [provincePaths, filteredCenters]); 
 
+  // Fix the event listener management to properly clean up and prevent multiple listeners
   useEffect(() => {
     if (svgRef.current && gRef.current) {
       const cityPaths = document.querySelectorAll('.city-path');
+      
+      // Create a map of event listeners to properly remove them later
+      const clickHandlers = new Map();
+      
       cityPaths.forEach(cityPath => {
-        cityPath.addEventListener('click', (e) => {
+        const handler = (e) => {
           if (e.target === cityPath && !e.defaultPrevented) {
             handleCityClick(cityPath.id);
           }
-        });
+        };
+        
+        // Store the handler for later removal
+        clickHandlers.set(cityPath, handler);
+        
+        // Add the event listener
+        cityPath.addEventListener('click', handler);
       });
       
       return () => {
+        // Properly remove all listeners using the stored handlers
         cityPaths.forEach(cityPath => {
-          cityPath.removeEventListener('click', () => {});
+          const handler = clickHandlers.get(cityPath);
+          if (handler) {
+            cityPath.removeEventListener('click', handler);
+          }
         });
       };
     }
@@ -436,9 +459,10 @@ const TurkeyMap = () => {
                       provincePaths[0]?.d === "" || 
                       !provincePaths[0]?.d;
 
+  // Bu fonksiyonu filteredCenters'ı kullanacak şekilde değiştirelim
   const getInstitutionsList = () => {
-    if (!zoomedCity || !russianCentersData[zoomedCity]) return [];
-    return russianCentersData[zoomedCity];
+    if (!zoomedCity || !filteredCenters[zoomedCity]) return [];
+    return filteredCenters[zoomedCity];
   };
 
   return (
@@ -707,17 +731,7 @@ const TurkeyMap = () => {
                     </div>
                   )}
                   
-                  {selectedInstitution.geoCoords && (
-                    <div className="mb-3">
-                      <h6 style={{ color: '#0032A0', borderBottom: '1px solid #f0f0f0', paddingBottom: '5px' }}>Coğrafi Koordinatlar</h6>
-                      <p className="mb-1">
-                        <strong>Enlem:</strong> {selectedInstitution.geoCoords.lat}
-                      </p>
-                      <p className="mb-1">
-                        <strong>Boylam:</strong> {selectedInstitution.geoCoords.lng}
-                      </p>
-                    </div>
-                  )}
+                  {/* Enlem/boylam kısmını kaldırdık */}
                   
                   {selectedInstitution.website && (
                     <div className="mb-3 text-center">
@@ -777,7 +791,7 @@ const TurkeyMap = () => {
                     padding: '5px 10px',
                     borderRadius: '10px'
                   }}>
-                    {getInstitutionsList().length}
+                    {getInstitutionsList().length} tane kurum mevcut
                   </span>
                 </div>
 
@@ -905,6 +919,7 @@ const TurkeyMap = () => {
             overflow: 'hidden'
           }}
         >
+
           <div className="title-box" style={{
             position: 'absolute',
             top: '20px',
@@ -1006,7 +1021,7 @@ const TurkeyMap = () => {
             width: '100%',
             height: '100%',
             display: 'block',
-            cursor: 'move'
+            cursor: 'pointer'
           }}>
             <rect x="0" y="0" width="800" height="350" fill="transparent" className="zoom-capture-rect" />
             <g ref={gRef}>
@@ -1024,13 +1039,13 @@ const TurkeyMap = () => {
                       title={province.ilismi}
                       className="city-path"
                       d={province.d}
-                      style={{
-                        ...pathStyles(cityCode),
-                        cursor: 'pointer' 
-                      }}
+                      style={pathStyles(cityCode)}
                       onMouseEnter={() => setHoverCity(cityCode)}
                       onMouseLeave={() => setHoverCity(null)}
-                      onClick={() => {}} 
+                      onClick={(e) => {
+                        // Let the event listener handle it
+                        // Empty function to allow the event listener in useEffect to work
+                      }} 
                     />
                     
                     {hasRussianCenters && !zoomedCity && (
