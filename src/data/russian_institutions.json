@@ -1,0 +1,101 @@
+{
+  "TR06": [
+    { 
+      "name": "Rus Evi Ankara Русский дом в Анкаре", 
+      "geoCoords": { "lat": 39.8677048, "lng": 32.8155985 }, 
+      "description": "Rossotrudniçestvo Türkiye Temsilciliği", 
+      "type": "Büyükelçilik", 
+      "address": "Rabindranath Tagore Cd. No:68, 06550 Çankaya/Ankara", 
+      "website": "turkiye.rs.gov.ru",
+      "image": "images/ruseviankara.png"
+    },
+    { 
+      "name": "Rus Eğitim Enstitüsü", 
+      "geoCoords": { "lat": 39.9179, "lng": 32.8610 }, 
+      "description": "Rusça dil eğitimi ve kültürel etkinlikler düzenleyen eğitim kurumu.", 
+      "type": "Kültür", 
+      "address": "Ankara Merkez", 
+      "website": "rusedu.com.tr" 
+    },
+    { 
+      "name": "Rus Bilim Akademisi", 
+      "geoCoords": { "lat": 39.9420, "lng": 32.8543 }, 
+      "description": "Ortak bilimsel projeler yürüten Rus araştırma kurumu şubesi.", 
+      "type": "Kültür", 
+      "address": "Ankara Üniversitesi Kampüsü", 
+      "website": "rusbilim.org.tr" 
+    }
+  ],
+  "TR01": [
+    { 
+      "name": "Adana Rus Kültür Merkezi", 
+      "geoCoords": { "lat": 36.9914, "lng": 35.3308 }, 
+      "description": "Adana ilinde faaliyet gösteren Rus kültür merkezi.", 
+      "type": "Kültür", 
+      "address": "Adana Merkez", 
+      "website": "adanaruskultur.com" 
+    }
+  ],
+  "TR34": [
+    { 
+      "name": "Rusya Başkonsolosluğu İstanbul", 
+      "geoCoords": { "lat": 41.0362, "lng": 28.9787 }, 
+      "description": "İstanbul'daki Rusya Federasyonu Başkonsolosluğu", 
+      "type": "Konsolosluk", 
+      "address": "İstiklal Caddesi No: 443, Beyoğlu, İstanbul", 
+      "website": "istanbul.mid.ru/tr/" 
+    },
+    { 
+      "name": "Rus Ticaret Temsilciliği", 
+      "geoCoords": { "lat": 41.0565, "lng": 28.9886 }, 
+      "description": "İstanbul'daki Rusya Federasyonu Ticaret Temsilciliği", 
+      "type": "Ticaret", 
+      "address": "Halaskargazi Cad. No: 349-1, Şişli, İstanbul", 
+      "website": "rustrade.org.tr/" 
+    },
+    { 
+      "name": "Rus Üniversitesi İstanbul Şubesi", 
+      "geoCoords": { "lat": 41.0278, "lng": 28.9744 }, 
+      "description": "İstanbul'da Rus eğitim kurumu", 
+      "type": "Üniversite", 
+      "address": "Beyoğlu, İstanbul", 
+      "website": "rusuniv.edu.tr" 
+    }
+  ],
+  "TR35": [
+    { 
+      "name": "İzmir Rus Derneği", 
+      "geoCoords": { "lat": 38.4192, "lng": 27.1287 }, 
+      "description": "İzmir'de yaşayan Ruslar için kültürel ve sosyal etkinlikler düzenleyen merkez.", 
+      "type": "Kültür", 
+      "address": "İzmir Merkez", 
+      "website": "izmirrusdernek.org" 
+    }
+  ],
+  "TR07": [
+    { 
+      "name": "Rusya Başkonsolosluğu Antalya", 
+      "geoCoords": { "lat": 36.8969, "lng": 30.7133 }, 
+      "description": "Antalya'daki Rusya Federasyonu Başkonsolosluğu", 
+      "type": "Konsolosluk", 
+      "address": "Park Sok. No:30, Yeşilbahçe Mah., Antalya", 
+      "website": "antalya.mid.ru/tr/" 
+    },
+    { 
+      "name": "Rus Dostluk Derneği", 
+      "geoCoords": { "lat": 36.8872, "lng": 30.7029 }, 
+      "description": "Antalya'da Rus-Türk dostluk ilişkilerini geliştiren sivil toplum kuruluşu.", 
+      "type": "Kültür", 
+      "address": "Antalya Merkez", 
+      "website": "rusdostluk.org" 
+    },
+    { 
+      "name": "Antalya Rus Eğitim Akademisi", 
+      "geoCoords": { "lat": 36.8654, "lng": 30.7500 }, 
+      "description": "Rusça dil eğitimi veren kurum", 
+      "type": "Üniversite", 
+      "address": "Lara, Antalya", 
+      "website": "rusacademy.com.tr" 
+    }
+  ]
+}
