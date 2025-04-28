@@ -36,21 +36,11 @@ const TurkeyMap = () => {
   useEffect(() => {
     console.log("Loading Russian institutions from JSON:", russianInstitutionsData);
     
-    // JSON verilerini dönüştürme (TR06 -> 06 formatına)
-    const convertedData = {};
-    Object.keys(russianInstitutionsData).forEach(key => {
-      let newKey = key;
-      // TR öneki varsa kaldır
-      if (key.startsWith('TR')) {
-        newKey = key.substring(2);
-      }
-      convertedData[newKey] = russianInstitutionsData[key];
-    });
-    
-    setRussianCentersData(convertedData);
+    // JSON verilerini olduğu gibi kullan, format dönüşümü yapma
+    setRussianCentersData(russianInstitutionsData);
     
     const categories = new Set(['Hepsi']);
-    Object.values(convertedData).forEach(cityInstitutions => {
+    Object.values(russianInstitutionsData).forEach(cityInstitutions => {
       cityInstitutions.forEach(institution => {
         if (institution.type) {
           categories.add(institution.type);
@@ -60,7 +50,10 @@ const TurkeyMap = () => {
     
     setAllCategories(Array.from(categories));
     
-    filterCentersByCategory('Hepsi', convertedData);
+    filterCentersByCategory('Hepsi', russianInstitutionsData);
+    
+    // Debug için JSON veri yapısını kontrol et
+    console.log("JSON keys:", Object.keys(russianInstitutionsData));
     
   }, []);
   const filterCentersByCategory = (category, data = russianCentersData) => {
