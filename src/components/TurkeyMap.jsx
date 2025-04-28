@@ -38,6 +38,7 @@ const TurkeyMap = () => {
     
     setRussianCentersData(russianInstitutionsData);
     
+    // Kurum tiplerini toplama
     const categories = new Set(['Hepsi']);
     Object.values(russianInstitutionsData).forEach(cityInstitutions => {
       cityInstitutions.forEach(institution => {
@@ -49,9 +50,27 @@ const TurkeyMap = () => {
     
     setAllCategories(Array.from(categories));
     
+    // Hangi şehir kodları mevcut, görelim
+    console.log("Mevcut şehir kodları:", Object.keys(russianInstitutionsData));
+    
+    // Path datası ile karşılaştır
+    if (provincePaths.length > 0) {
+      const mapCityCodes = provincePaths.map(p => p.plaka).filter(Boolean);
+      console.log("Harita şehir kodları:", mapCityCodes);
+      
+      // Eşleşmeyen kodları bul
+      const unmatchedCodes = Object.keys(russianInstitutionsData).filter(
+        code => !mapCityCodes.includes(code)
+      );
+      
+      if (unmatchedCodes.length > 0) {
+        console.warn("Eşleşmeyen şehir kodları:", unmatchedCodes);
+      }
+    }
+    
     filterCentersByCategory('Hepsi', russianInstitutionsData);
     
-  }, []);
+  }, [provincePaths]);
   const filterCentersByCategory = (category, data = russianCentersData) => {
     setSelectedCategory(category);
     
@@ -125,6 +144,7 @@ const TurkeyMap = () => {
     setSearchTerm('');
     setSuggestions([]);
     
+    // If already zoomed in to a different city, don't allow direct transition
     if (zoomedCity && zoomedCity !== institution.cityCode) {
       return;
     }
@@ -156,7 +176,9 @@ const TurkeyMap = () => {
         g.attr('transform', event.transform.toString());
         setCurrentZoomLevel(event.transform.k);
       })
+      // Burada fare tekerleği 
       .filter(event => {
+        // Çift tıklama
         return !event.type.includes('wheel') && 
                !event.type.includes('mouse') &&
                !event.type.includes('dblclick');
@@ -165,6 +187,7 @@ const TurkeyMap = () => {
     svg.call(zoomHandler);
     zoomBehaviorRef.current = zoomHandler;
     
+    // Harita içinde genel cursor stilini ayarla - her zaman pointer olsun
     svg.style("cursor", "pointer");
     
     svg.on('dblclick', event => {
@@ -182,7 +205,7 @@ const TurkeyMap = () => {
     };
   }, []);
 
-  // Kurum türüne göre renk belirleme - Rus bayrağı renkleri 
+  // Kurum türüne göre renk belirleme - Rus bayrağı renkleri kullanılıyor
   const getMarkerColor = (type) => {
     switch(type) {
       case 'Büyükelçilik': return '#DA291C'; // Kırmızı
@@ -221,10 +244,42 @@ const TurkeyMap = () => {
     const newMappings = {};
     const newCenters = [];
     
+    console.log("Calculating coordinates for cities:", Object.keys(filteredCenters));
+    
     // Her il için
     Object.keys(filteredCenters).forEach(sehirKodu => {
       const cityPath = document.getElementById(sehirKodu);
-      if (!cityPath) return;
+      if (!cityPath) {
+        console.warn(`City path element not found for code: ${sehirKodu}`);
+        // İl ID'sini kontrol et - bazen format uyuşmazlığı olabilir (örn. "1" vs "01")
+        let matchedCityPath = null;
+        
+        // Tek haneli plakaları iki haneli formata çevirmeyi dene
+        if (sehirKodu.length === 1) {
+          const paddedCode = "0" + sehirKodu;
+          matchedCityPath = document.getElementById(paddedCode);
+          if (matchedCityPath) {
+            console.log(`Found matching city with padded code: ${paddedCode}`);
+          }
+        } 
+        // İki haneli plakaları tek haneli formata çevirmeyi dene
+        else if (sehirKodu.length === 2 && sehirKodu.startsWith("0")) {
+          const unpaddedCode = sehirKodu.substring(1);
+          matchedCityPath = document.getElementById(unpaddedCode);
+          if (matchedCityPath) {
+            console.log(`Found matching city with unpadded code: ${unpaddedCode}`);
+          }
+        }
+        
+        // Eğer alternatif format bulunamazsa, bu şehri atla
+        if (!matchedCityPath) {
+          console.error(`Cannot find city path for code: ${sehirKodu} - skipping`);
+          return;
+        }
+        
+        // Eşleşen yolu kullan
+        cityPath = matchedCityPath;
+      }
       
       try {
         const bbox = cityPath.getBBox();
@@ -404,6 +459,18 @@ const TurkeyMap = () => {
   
   useEffect(() => {
     if (provincePaths.length > 0 && Object.keys(filteredCenters).length > 0) {
+      // Konsolda basit bir özet göster
+      console.log(`${provincePaths.length} il ve ${Object.keys(filteredCenters).length} şehirde Rus kurumu var`);
+      
+      // Şehir plaka formatlarını kontrol et
+      const mapPlakaFormats = provincePaths.map(p => ({
+        plaka: p.plaka,
+        ismi: p.ilismi,
+        format: p.plaka ? (p.plaka.startsWith('0') ? 'padded' : 'unpadded') : 'missing'
+      }));
+      
+      console.log("Harita plaka formatları:", mapPlakaFormats);
+      
       const timer = setTimeout(() => {
         calculateSVGCoordinates();
       }, 1000); 
