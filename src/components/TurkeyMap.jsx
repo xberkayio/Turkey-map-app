@@ -36,11 +36,21 @@ const TurkeyMap = () => {
   useEffect(() => {
     console.log("Loading Russian institutions from JSON:", russianInstitutionsData);
     
-    setRussianCentersData(russianInstitutionsData);
+    // JSON verilerini dönüştürme (TR06 -> 06 formatına)
+    const convertedData = {};
+    Object.keys(russianInstitutionsData).forEach(key => {
+      let newKey = key;
+      // TR öneki varsa kaldır
+      if (key.startsWith('TR')) {
+        newKey = key.substring(2);
+      }
+      convertedData[newKey] = russianInstitutionsData[key];
+    });
     
-    // Kurum tiplerini toplama
+    setRussianCentersData(convertedData);
+    
     const categories = new Set(['Hepsi']);
-    Object.values(russianInstitutionsData).forEach(cityInstitutions => {
+    Object.values(convertedData).forEach(cityInstitutions => {
       cityInstitutions.forEach(institution => {
         if (institution.type) {
           categories.add(institution.type);
@@ -50,27 +60,9 @@ const TurkeyMap = () => {
     
     setAllCategories(Array.from(categories));
     
-    // Hangi şehir kodları mevcut, görelim
-    console.log("Mevcut şehir kodları:", Object.keys(russianInstitutionsData));
+    filterCentersByCategory('Hepsi', convertedData);
     
-    // Path datası ile karşılaştır
-    if (provincePaths.length > 0) {
-      const mapCityCodes = provincePaths.map(p => p.plaka).filter(Boolean);
-      console.log("Harita şehir kodları:", mapCityCodes);
-      
-      // Eşleşmeyen kodları bul
-      const unmatchedCodes = Object.keys(russianInstitutionsData).filter(
-        code => !mapCityCodes.includes(code)
-      );
-      
-      if (unmatchedCodes.length > 0) {
-        console.warn("Eşleşmeyen şehir kodları:", unmatchedCodes);
-      }
-    }
-    
-    filterCentersByCategory('Hepsi', russianInstitutionsData);
-    
-  }, [provincePaths]);
+  }, []);
   const filterCentersByCategory = (category, data = russianCentersData) => {
     setSelectedCategory(category);
     
@@ -107,12 +99,19 @@ const TurkeyMap = () => {
     const allInstitutions = [];
     Object.keys(russianCentersData).forEach(cityCode => {
       russianCentersData[cityCode].forEach(institution => {
-        const cityElement = document.getElementById(cityCode);
-        const cityName = cityElement ? cityElement.getAttribute('title') : cityCode;
+        // cityCode formatını kontrol et (TR06 -> 06 formatına)
+        let displayCityCode = cityCode;
+        if (cityCode.startsWith('TR')) {
+          displayCityCode = cityCode.substring(2);
+        }
+        
+        const cityElement = document.getElementById(displayCityCode);
+        const cityName = cityElement ? cityElement.getAttribute('title') : displayCityCode;
         
         allInstitutions.push({
           ...institution,
-          cityCode,
+          cityCode: displayCityCode,
+          originalCityCode: cityCode, // Orijinal kodu da sakla
           cityName
         });
       });
@@ -244,41 +243,19 @@ const TurkeyMap = () => {
     const newMappings = {};
     const newCenters = [];
     
-    console.log("Calculating coordinates for cities:", Object.keys(filteredCenters));
-    
     // Her il için
     Object.keys(filteredCenters).forEach(sehirKodu => {
-      const cityPath = document.getElementById(sehirKodu);
+      // Plaka formatını kontrol et ve il elementini bul
+      let cityPathId = sehirKodu;
+      // Eğer filteredCenters içindeki key TR ile başlıyorsa, TR'yi kaldır
+      if (sehirKodu.startsWith('TR')) {
+        cityPathId = sehirKodu.substring(2);
+      }
+      
+      const cityPath = document.getElementById(cityPathId);
       if (!cityPath) {
-        console.warn(`City path element not found for code: ${sehirKodu}`);
-        // İl ID'sini kontrol et - bazen format uyuşmazlığı olabilir (örn. "1" vs "01")
-        let matchedCityPath = null;
-        
-        // Tek haneli plakaları iki haneli formata çevirmeyi dene
-        if (sehirKodu.length === 1) {
-          const paddedCode = "0" + sehirKodu;
-          matchedCityPath = document.getElementById(paddedCode);
-          if (matchedCityPath) {
-            console.log(`Found matching city with padded code: ${paddedCode}`);
-          }
-        } 
-        // İki haneli plakaları tek haneli formata çevirmeyi dene
-        else if (sehirKodu.length === 2 && sehirKodu.startsWith("0")) {
-          const unpaddedCode = sehirKodu.substring(1);
-          matchedCityPath = document.getElementById(unpaddedCode);
-          if (matchedCityPath) {
-            console.log(`Found matching city with unpadded code: ${unpaddedCode}`);
-          }
-        }
-        
-        // Eğer alternatif format bulunamazsa, bu şehri atla
-        if (!matchedCityPath) {
-          console.error(`Cannot find city path for code: ${sehirKodu} - skipping`);
-          return;
-        }
-        
-        // Eşleşen yolu kullan
-        cityPath = matchedCityPath;
+        console.warn(`City path not found for code: ${sehirKodu} / ${cityPathId}`);
+        return;
       }
       
       try {
@@ -300,7 +277,7 @@ const TurkeyMap = () => {
         // Her kurum için pozisyon hesapla
         institutions.forEach((institution, index) => {
           // Kurum için benzersiz bir ID oluştur
-          const institutionId = `${sehirKodu}-${index}`;
+          const institutionId = `${cityPathId}-${index}`;
           
           // Kurumun konumunu belirle (merkeze yakın farklı noktalarda)
           // Daha düzenli dağılım için açı ve mesafeyi ayarla
@@ -335,7 +312,7 @@ const TurkeyMap = () => {
           newCenters.push({
             ...institution,
             id: institutionId,
-            cityCode: sehirKodu,
+            cityCode: cityPathId, // Harita elemanına uygun ID kullan
             location: position
           });
         });
@@ -459,18 +436,6 @@ const TurkeyMap = () => {
   
   useEffect(() => {
     if (provincePaths.length > 0 && Object.keys(filteredCenters).length > 0) {
-      // Konsolda basit bir özet göster
-      console.log(`${provincePaths.length} il ve ${Object.keys(filteredCenters).length} şehirde Rus kurumu var`);
-      
-      // Şehir plaka formatlarını kontrol et
-      const mapPlakaFormats = provincePaths.map(p => ({
-        plaka: p.plaka,
-        ismi: p.ilismi,
-        format: p.plaka ? (p.plaka.startsWith('0') ? 'padded' : 'unpadded') : 'missing'
-      }));
-      
-      console.log("Harita plaka formatları:", mapPlakaFormats);
-      
       const timer = setTimeout(() => {
         calculateSVGCoordinates();
       }, 1000); 
@@ -1096,8 +1061,13 @@ const TurkeyMap = () => {
               
               {provincePaths.map((province, index) => {
                 const cityCode = province.plaka;
-                const hasRussianCenters = cityCode && filteredCenters[cityCode];
-                const centerCount = hasRussianCenters ? filteredCenters[cityCode].length : 0;
+                // TR06 formatıyla eşleştirebilmek için TR eklemeyi dene
+                const trCityCode = `TR${cityCode}`;
+                // İl için kurum var mı kontrol et (hem doğrudan hem TR ekli haliyle)
+                const hasRussianCenters = (cityCode && (filteredCenters[cityCode] || filteredCenters[trCityCode]));
+                // Kurum sayısını doğru şekilde hesapla
+                const centerCount = hasRussianCenters ? 
+                  (filteredCenters[cityCode]?.length || 0) + (filteredCenters[trCityCode]?.length || 0) : 0;
                 
                 return (
                   <g key={cityCode || `province-${index}`} className="city-group">
