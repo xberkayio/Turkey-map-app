@@ -4,6 +4,16 @@ import russianInstitutionsData from '../data/russian_institutions.json';
 import { zoom, zoomIdentity } from 'd3-zoom';
 import { select } from 'd3-selection';
 import 'd3-transition';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faLandmarkFlag, 
+  faSchoolFlag,   
+  faBuildingFlag, 
+  faSchool,       
+  faBriefcase,    
+  faMasksTheater, 
+} from '@fortawesome/free-solid-svg-icons';
+
 
 const TurkeyMap = () => {
   const [provincePaths, setProvincePaths] = useState([]);  
@@ -26,6 +36,26 @@ const TurkeyMap = () => {
   const gRef = useRef(null);
   const zoomBehaviorRef = useRef(null);
   const searchInputRef = useRef(null);
+
+  const getFallbackIcon = (type) => {
+    switch(type) {
+      case 'Büyükelçilik':
+        return faLandmarkFlag;
+      case 'Konsolosluk':
+        return faBuildingFlag;
+      case 'Ticaret':
+      case 'Enerji':
+        return faBriefcase;
+      case 'Kültür':
+        return faMasksTheater;
+      case 'Diğer':
+        return faSchoolFlag;
+      case 'Üniversite':
+        return faSchool;
+      default:
+        return faSchool;
+    }
+  };
 
   const normalizeCode = (code) => {
     if (!code) return '';
@@ -559,10 +589,11 @@ const TurkeyMap = () => {
                 </div>
                 
                 <div className="text-center mb-4">
+                  {/* Resim varsa göster */}
                   {selectedInstitution.image && selectedInstitution.image !== "" ? (
-                    <div 
-                      style={{ 
-                        width: '60px', 
+                    <div
+                      style={{
+                        width: '60px',
                         height: '60px',
                         margin: '0 auto 10px',
                         overflow: 'hidden',
@@ -571,40 +602,39 @@ const TurkeyMap = () => {
                         border: `2px solid ${getMarkerColor(selectedInstitution.type)}`
                       }}
                     >
-                      <img 
-                        src={selectedInstitution.image} 
+                      <img
+                        src={selectedInstitution.image}
                         alt={selectedInstitution.name}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         onError={(e) => {
-                          e.target.style.display = 'none';
-                          e.target.parentNode.style.display = 'none';
-                          const fallbackIcon = document.getElementById('fallback-icon-selected');
-                          if (fallbackIcon) {
-                            fallbackIcon.style.display = 'flex';
+                          e.target.style.display = 'none'; 
+                          const fallbackDiv = e.target.closest('div').nextElementSibling; 
+                          if (fallbackDiv) {
+                              fallbackDiv.style.display = 'flex'; 
                           }
+                          e.target.closest('div').style.border = 'none'; 
+                          e.target.closest('div').style.display = 'none'; 
                         }}
                       />
                     </div>
                   ) : null}
                   
-                  <div 
-                    id="fallback-icon-selected"
-                    style={{ 
-                      width: '60px', 
-                      height: '60px', 
+                  <div
+                    style={{
+                      width: '60px',
+                      height: '60px',
                       backgroundColor: getMarkerColor(selectedInstitution.type),
                       borderRadius: '50%',
                       margin: '0 auto 10px',
-                      display: selectedInstitution.image && selectedInstitution.image !== "" ? 'none' : 'flex',
+                      
+                      display: (!selectedInstitution.image || selectedInstitution.image === "") ? 'flex' : 'none',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      color: 'white',
-                      fontWeight: 'bold',
-                      fontSize: '18px',
+                      color: 'white', 
                       boxShadow: '0 2px 10px rgba(0,0,0,0.1)'
                     }}
                   >
-                    {selectedInstitution.type ? selectedInstitution.type.charAt(0) : 'K'}
+                    <FontAwesomeIcon icon={getFallbackIcon(selectedInstitution.type)} size="2x" />
                   </div>
                   <h5 style={{ color: '#333' }}>{selectedInstitution.name}</h5>
                   <div style={{ 
